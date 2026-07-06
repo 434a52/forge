@@ -6,9 +6,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 )
-
-const version = "0.0.0-dev"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -19,7 +18,7 @@ func main() {
 	command := os.Args[1]
 	switch command {
 	case "version":
-		fmt.Println("c5n " + version)
+		fmt.Println("c5n " + buildVersion())
 	case "build":
 		// The real codegen lands here: read schema + data, emit code.
 		fmt.Println("build: not implemented yet")
@@ -28,6 +27,16 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+// buildVersion returns the module version embedded at build time. It comes from
+// the git tag when installed (go install ...@vX.Y.Z); local builds report "dev".
+func buildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
 }
 
 func printUsage() {
