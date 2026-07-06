@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "c5n version",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/c5n/cmd/c5n",
+      "args": ["version"]
+    },
+    {
+      "name": "c5n build",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/c5n/cmd/c5n",
+      "args": ["build"]
+    }
+  ]
+}

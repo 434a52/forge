@@ -18,3 +18,7 @@ dist/
 
 # Claude local, machine-specific
 .claude/settings.local.json
+
+# Go: built binaries have no extension. Build to bin/ (ignored above) or use
+# `go run`; avoid bare `go build ./...` in a module dir (it drops an in-tree binary).
+/c5n/c5n
