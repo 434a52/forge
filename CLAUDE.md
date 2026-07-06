@@ -2,6 +2,12 @@
 
 Monorepo for the codegen-coupled stack (`c5n`, `f8n`, `l10n`, `doppel`, …). **Private during development.** Design docs live in each project dir (`c5n/DESIGN.md`, `f8n/DESIGN.md`, …).
 
+## Instruction context
+
+@llm/index.md
+
+The corpus-driven methodology + collaboration/design-rigour payloads, synced from **i10s** (pinned in `llm.conf`). To update: bump the ref in `llm.conf` and follow `llm/sync.md`. Project-specific instructions go under `llm/local/`.
+
 ## Attribution
 
 Credit Claude as co-contributor on all git activity:
@@ -11,7 +17,7 @@ Credit Claude as co-contributor on all git activity:
 ## Structure
 
 - One project per top-level dir (`c5n/`, `f8n/`, …), each **self-contained** (own build + package) so it can `git subtree split` out later.
-- One root `llm/` — shared instruction context (the i10s corpus), referenced via `@llm/index.md`. (Added when i10s syncs in.)
+- One root `llm/` — shared instruction context synced from i10s (`synced/` = pinned + managed; `local/` = yours), referenced via `@llm/index.md`.
 
 ## Architecture (the load-bearing decisions)
 
