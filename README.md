@@ -11,6 +11,7 @@ A monorepo for the codegen-coupled stack: the engine (`c5n`) and the libraries b
 | `c5n/` | the codegen engine (Go) — schema + data → typed cross-language code |
 | `f8n/` | domain primitives — Money, Currency, Country, rates, temporal (C# + TS) |
 | `l10n/` | localisation library — cross-language, on-device, tree-shakable (C# + TS); design only for now |
+| `doppel/` | realistic locale-aware synthetic data (coherent personas) on f8n + l10n — the visual demo; design only for now |
 
 First milestone: the **c5n + f8n walking skeleton** (one currency → C# + TS constant → one golden vector proving parity). `l10n`, `doppel`, and the rest land as they're built.
 
