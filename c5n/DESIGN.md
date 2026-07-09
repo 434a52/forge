@@ -42,14 +42,16 @@ Percentage:                 # external: hand-written runtime primitive
     csharp: "new Percentage({value}m)"   # note the C# decimal 'm' suffix
     ts:     "new Percentage({value})"
 
-Country:                    # external; no emit: → positional-ctor *convention*
+Country:                    # external; no emit: → positional-ctor *convention* (ctor args = fields)
   external: true
-  fields: { alpha3: string, numeric: int, callingCode: int,
-            defaultCurrency: Currency, tz: string }
+  key: alpha3               # identity → names Country.GBR; also the reference target
+  fields: { alpha2: string, alpha3: string, numeric: int, name: string, callingCode: int,
+            defaultCurrency: Currency, capitalTz: string }
 
-Currency:                   # external; instances come from a table (referenced as Currency.GBP)
+Currency:                   # external; a table<Currency> → one constant per key (Currency.GBP)
   external: true
-  fields: { minorUnits: int, symbol: string }
+  key: code                 # identity → names Currency.GBP; also the reference target
+  fields: { code: string, numeric: int, name: string, symbol: string, minorUnits: int }
 
 TaxRate:                    # external; convention: new TaxRate(jurisdiction, taxType, category, rate)
   external: true
@@ -61,31 +63,32 @@ TaxCategory: { kind: enum }
 
 **Construction = convention-by-default + per-type override.** Most types get a positional-ctor convention the writer knows (`new T(f1, f2, …)`) — zero per-type config. Only the awkward ones (factories like `Money.of`, literal suffixes like `m`, singleton refs) carry an explicit `emit:` block, and it lives **beside the type** (all of `Percentage` in one place). Recipes are per-target-language. Cost of "add Swift" = a new writer **+ a `swift:` line on the few special types**, not every type.
 
+**Identity = the `key:` field (`table<T>`).** A `table<T>` emits one named constant per row; `key:` names which declared field is the identity — it becomes the **constant's name** (`Country.GBR`, from `alpha3`) and the **reference target** (a `defaultCurrency: GBP` elsewhere resolves to `Currency.GBP` by matching Currency's `code`). The id is therefore an ordinary field in the ctor like any other — **no key-prepend magic** — and data is authored as a plain **list** of rows (the id appears once). *(A map authoring form — key implicit, id not a stored field — stays available for identities that aren't domain fields, e.g. l10n's namespace names; f8n uses the explicit `key:` + list form.)* Validation: the `key:` field must be **unique** across the table (the uniqueness the map form gave structurally).
+
 ### Data — positionally typed, `common`-hoisted
 Data files stay clean: a collection binds to a schema type **once** (a top-level `type:`), and every nested field's type is looked up from the schema recursively. **No per-value type tags** — position carries the type. (The sole exception: a genuinely polymorphic field, whose declared type is a union — only there does a value carry a discriminator. Rare; zero cost when absent.)
 
 ```yaml
-# data/currencies.yaml — the map key IS the identity (→ the generated symbol + the ISO code)
+# data/currencies.yaml — a list of rows; identity is the `code` field (the schema key)
 type: table<Currency>
 items:
-  GBP: { minorUnits: 2, symbol: "£" }
-  JPY: { minorUnits: 0, symbol: "¥" }
-  BHD: { minorUnits: 3, symbol: ".د.ب" }
+  - { code: GBP, numeric: 826, name: "Pound Sterling", symbol: "£", minorUnits: 2 }
+  - { code: EUR, numeric: 978, name: "Euro",           symbol: "€", minorUnits: 2 }
 ```
 
 ```yaml
-# data/countries.yaml — key = alpha-2, so it isn't repeated in the body
+# data/countries.yaml — a list of rows; identity is the `alpha3` field (the schema key)
 type: table<Country>
 items:
-  GB: { alpha3: GBR, numeric: 826, callingCode: 44, defaultCurrency: GBP, tz: Europe/London }
-  FR: { alpha3: FRA, numeric: 250, callingCode: 33, defaultCurrency: EUR, tz: Europe/Paris }
+  - { alpha2: GB, alpha3: GBR, numeric: 826, name: "United Kingdom", callingCode: 44, defaultCurrency: GBP, capitalTz: Europe/London }
+  - { alpha2: FR, alpha3: FRA, numeric: 250, name: "France",         callingCode: 33, defaultCurrency: EUR, capitalTz: Europe/Paris }
 ```
 
 ```yaml
 # data/tax/gb-vat.yaml — a series; the invariant identity is hoisted to `common`, not per-row
 VatStandard:
   type: EffectiveDated<TaxRate>
-  common: { jurisdiction: GB, taxType: VAT, category: standard }
+  common: { jurisdiction: GBR, taxType: VAT, category: standard }
   rows:
     - { from: 2011-01-04, rate: 0.20 }
     - { from: 2010-01-01, rate: 0.175 }
@@ -99,7 +102,7 @@ A small fixed set of collection kinds, selected by the declared `type:`:
 | kind | shape | envelope | emitted |
 |---|---|---|---|
 | `list<T>` | ordered values | none | array of `T` |
-| `table<T>` | keyed by identity | none | one constant per key (`Country.GB`) |
+| `table<T>` | keyed by identity | none | one constant per key-field value (`Country.GBR`) |
 | `tree<T>` | recursively nested, keyed | none | nested scopes *or* nested value (by leaf type) |
 | `EffectiveDated<T>` | temporal series | key field **declared by the type** | as-of series |
 
@@ -111,7 +114,7 @@ A small fixed set of collection kinds, selected by the declared `type:`:
 For each field the emitter resolves, **driven purely by the declared field type**, to one of three shapes:
 
 - **literal** — scalar → per-language literal formatting (`0.20m`, `826`, a `DateOnly(…)`);
-- **reference** — the value matches a member/key of a *generated* symbol (an enum member, a table key) → emit the reference (`Currency.GBP`, `TaxType.VAT`), not a fresh ctor;
+- **reference** — the value matches an enum member or a table row's **key-field value** → emit the reference (`Currency.GBP`, `TaxType.VAT`), not a fresh ctor;
 - **nested ctor** — the field's type is a constructible type → recurse (`new Percentage(0.20m)`).
 
 This resolver is target-independent and **shared core** — it is the one logic-bearing part, and where correctness lives (a wrong ctor is wrong data *everywhere* it's emitted), so it is what the golden vectors must pin hardest.
@@ -119,16 +122,16 @@ This resolver is target-independent and **shared core** — it is the one logic-
 Emitted C# from the data above (generated `partial`s; hand-written `Country.cs` / `Money.cs` hold behaviour):
 
 ```csharp
-// Country.g.cs
+// Country.g.cs — constant named from the key field (alpha3); ctor args = declared fields, in order
 public partial class Country {
-    public static readonly Country GB = new Country("GB", "GBR", 826, 44, Currency.GBP, "Europe/London");
-    public static readonly Country FR = new Country("FR", "FRA", 250, 33, Currency.EUR, "Europe/Paris");
+    public static readonly Country GBR = new Country("GB", "GBR", 826, "United Kingdom", 44, Currency.GBP, "Europe/London");
+    public static readonly Country FRA = new Country("FR", "FRA", 250, "France", 33, Currency.EUR, "Europe/Paris");
 }
 // TaxRates.g.cs — common merged into each row; reference + nested-ctor + literal all visible
 public static class VatStandard {
     public static readonly EffectiveDated<TaxRate> Series = EffectiveDated.Of(
-        (new DateOnly(2011, 1, 4), new TaxRate(Country.GB, TaxType.VAT, TaxCategory.Standard, new Percentage(0.20m))),
-        (new DateOnly(2010, 1, 1), new TaxRate(Country.GB, TaxType.VAT, TaxCategory.Standard, new Percentage(0.175m))));
+        (new DateOnly(2011, 1, 4), new TaxRate(Country.GBR, TaxType.VAT, TaxCategory.Standard, new Percentage(0.20m))),
+        (new DateOnly(2010, 1, 1), new TaxRate(Country.GBR, TaxType.VAT, TaxCategory.Standard, new Percentage(0.175m))));
 }
 ```
 
@@ -136,7 +139,7 @@ The TS writer emits the same data against the same hand-written types, differing
 
 ```ts
 // country.data.ts (generated) — imports the hand-written Country class, exports instances
-export const GB = new Country("GB", "GBR", 826, 44, Currency.GBP, "Europe/London");
+export const GBR = new Country("GB", "GBR", 826, "United Kingdom", 44, Currency.GBP, "Europe/London");
 ```
 
 ### Target selection — explicit, at the *project* boundary
@@ -260,6 +263,7 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - **Generation-model details to firm up** (all bounded, none structural): the exact collection-kind spelling (`list`/`table`/`EffectiveDated`); enum-member normalisation (how data's `standard` maps to `TaxCategory.Standard` — casing/aliasing); and the polymorphic-field discriminator syntax (bites `l10n`'s plain-vs-interpolated leaf, not `f8n`).
 
 ## Change log
+- 2026-07-09: **identity via a declared `key:` field + list authoring form** (from building f8n's first real data). A `table<T>` names its constant from the field the type's `key:` points at (`Country.GBR` from `alpha3`, `Currency.GBP` from `code`), and that field is also the reference target; **ctor args are the explicit declared fields — no key-prepend magic** — and data is authored as a **list** of rows (the id appears once). The **map form** (key implicit, id not a stored field) stays available for identities that aren't domain fields (l10n namespaces). Added a **key-uniqueness** validation note. Updated the schema/data/emitted examples to match `../f8n/` (Currency `key: code` + a default `symbol`; Country `key: alpha3`; `tz` → `capitalTz`, the capital's civil zone).
 - 2026-07-04: **Further consumers (portfolio + a code-first model layer)** — thrown adversarially, both fit with **no new machinery beyond record-body emit**. Added: **record/model type-body emit** (generated types now include records, not just enums/external instances); **`fromJson`** (generated deserialiser, recurses through the schema — reusable); **validation** = generated fn composing hand-written validator fns (l10n composition pattern; *where cross-language conformance earns its keep* — "client matches server" is the golden-vector problem; declarative rules only, server-only checks excluded). Clarified **nested records ≠ `tree<T>`** (fixed-schema nesting is records-with-list-fields; `tree<T>` stays for recursive/self-similar cases). Everything else (HTTP, state, patch, UI) is hand-maintained — the guardrail held, engine stayed small. Retracted earlier over-specs (typed API-client generator; normalised-JSON-as-published-contract framing) — a code-first source is just another reader (Roslyn) lowering to the normalised model.
 - 2026-07-04: **l10n stress-test** (pressure-testing the reusability thesis against the hardest consumer). Engine holds; bounded additions: **`tree<T>`** collection kind (recursive generalisation of `table<T>`; leaf type → nested scopes vs nested value), **typed-shim emit** (a message accessor = a typed façade over a hand-written runtime call; the irreducible generated part is just the typed signature), **fine-grained output layout** (per-message/locale files for tree-shaking), **consumers lower exotic DSLs upstream** (c5n never parses `{arg:hint}` — l10n owns the front-end + the runtime interpreter). Principle generalised: "generate data / hand-write behaviour" → **"generate the typed boundary / hand-write the algorithm."** Calibration: "one schema for all" → **one shared meta-model + engine, per-consumer schemas.** Perf/conformance rationale: build-time parse-to-data (not runtime re-parse) + one interpreter per language (not inlined bodies) = tiny conformance surface. **Concrete l10n code-shape held as candidate** (codegen-native redesign, diverges from the conventional translation-client/string-resolver structure; not yet validated against a real message set).
 - 2026-07-03: added **Build order & what's deferrable** — critical path = spec + codegen; conformance is a room. Conformance runner direction chosen: **(B) a uniform Go driver + per-language `run-vector` CLIs** = one neutral runner that doubles as the third-party audit tool — **planned but deferred**, backfill is additive. Three seams to honour now so backfill stays cheap: deterministic/invariant serialization, worked-examples accreted into the spec as edges are derived, a stable vector wire-format. Accepted debt: no parity net while the money math is written. Includes dependency edges for the cross-project merge (c5n is upstream of f8n/l10n/doppel; co-evolves with f8n; belongs beneath f8n in the dependency layering).

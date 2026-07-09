@@ -1,0 +1,16 @@
+# Country table — identity is the `alpha3` field (schema key) → emits Country.GBR, Country.DEU, …
+# Hand-authored handful (skeleton) — NOT a sourced iso-codes/CLDR dataset. A few hand-typed
+# rows dodge the LGPL/database-right question entirely; the full sourced table is a later
+# pipeline step, gated on the licence decision (see f8n/DESIGN.md banner). Do not grow this
+# into the real dataset.
+#
+# defaultCurrency references a Currency by its code; capitalTz is the IANA civil zone of the
+# capital city (a single well-defined representative — per-subdivision zones for multi-zone
+# countries are deferred to subdivision data, see f8n/DESIGN.md).
+type: table<Country>
+items:
+  - { alpha2: GB, alpha3: GBR, numeric: 826, name: "United Kingdom", callingCode: 44,  defaultCurrency: GBP, capitalTz: Europe/London    }  # London
+  - { alpha2: DE, alpha3: DEU, numeric: 276, name: "Germany",        callingCode: 49,  defaultCurrency: EUR, capitalTz: Europe/Berlin    }  # Berlin
+  - { alpha2: FR, alpha3: FRA, numeric: 250, name: "France",         callingCode: 33,  defaultCurrency: EUR, capitalTz: Europe/Paris     }  # Paris
+  - { alpha2: PT, alpha3: PRT, numeric: 620, name: "Portugal",       callingCode: 351, defaultCurrency: EUR, capitalTz: Europe/Lisbon    }  # Lisbon
+  - { alpha2: US, alpha3: USA, numeric: 840, name: "United States",  callingCode: 1,   defaultCurrency: USD, capitalTz: America/New_York }  # Washington, D.C.

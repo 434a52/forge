@@ -1,0 +1,8 @@
+# Currency table — identity is the `code` field (schema key) → emits Currency.GBP, Currency.EUR.
+# Hand-authored skeleton set (only what the countries reference); the full sourced table
+# comes later via the CLDR pipeline (licence decision pending — see f8n/DESIGN.md banner).
+type: table<Currency>
+items:
+  - { code: GBP, numeric: 826, name: "Pound Sterling", symbol: "£", minorUnits: 2 }
+  - { code: EUR, numeric: 978, name: "Euro",           symbol: "€", minorUnits: 2 }
+  - { code: USD, numeric: 840, name: "US Dollar",      symbol: "$", minorUnits: 2 }

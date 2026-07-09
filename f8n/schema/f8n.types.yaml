@@ -1,0 +1,21 @@
+# f8n type schema — declared once, language-blind except construction recipes.
+# c5n reads this to know how to construct instances; the type *bodies* are hand-written
+# runtime code (external: true), so c5n emits ctor calls, never the class definitions.
+#
+# Convention: a table<T> emits one named constant per row, named from the field the type's
+# `key:` points at. The key is an ordinary declared field (no magic map key) — so data is
+# authored as a plain list and the id appears once, in the row. `key:` is also the reference
+# target: a Country's `defaultCurrency: GBP` resolves against Currency's key field (code).
+# No `emit:` overrides needed here (all scalar/reference fields, no decimals).
+
+Currency:
+  external: true
+  key: code                    # identity → names Currency.GBP; the defaultCurrency ref target
+  # symbol = default/canonical symbol only; locale-specific presentation is l10n's
+  fields: { code: string, numeric: int, name: string, symbol: string, minorUnits: int }
+
+Country:
+  external: true
+  key: alpha3                  # identity → names Country.GBR
+  fields: { alpha2: string, alpha3: string, numeric: int, name: string, callingCode: int,
+            defaultCurrency: Currency, capitalTz: string }
