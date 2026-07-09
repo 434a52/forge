@@ -7,7 +7,7 @@
 ## What it is
 - **Clean components** — composed from base-classes/components that use `l10n` (localised) + `a11y` (accessible) by construction, and can embed `etch` graphics.
 - **Email** — components compile to bulletproof email HTML, hiding the awful email-HTML quirks (legacy-client nonsense). Emails reach the server **ready-formed** (HTML body + narrative).
-- **PDF** — the same HTML renders via a **PDF service using Playwright** (headless-browser conversion).
+- **PDF** — the same HTML renders in the **`press`** render service (Node + Playwright). Given C#-business-logic backends, scribe is **service-first**: BEs call `press` over HTTP → ready-formed email/PDF; the direct TS-library path is secondary.
 - **One source → two outputs** — email HTML and PDF from one component.
 
 ## North star (to firm up)

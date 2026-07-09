@@ -15,6 +15,7 @@ A monorepo for the codegen-coupled stack: the engine (`c5n`) and the libraries b
 | `a11y/` | accessibility toolkit — accessible primitives, announcer, provable/auditable compliance; skeleton |
 | `etch/` | SVG component system — clean vector components, localised + accessible, one source → UI/PDF/email; skeleton |
 | `scribe/` | TS/Vue engine for email + PDF — clean components → email HTML + PDF (Playwright); engine open; skeleton |
+| `press/` | render service (Node) — hosts Playwright; renders scribe + etch → PDF/PNG; HTTP boundary for C# backends; skeleton |
 | `palette/` | design-tokens layer — canonical design values → c5n → CSS vars + typed TS; the shared design foundation; skeleton |
 | `lattice/` | Vue component library — accessible + localised + token-driven; curated, not comprehensive; skeleton |
 | `portfolio/` | bespoke Vue/Vite showcase site that dogfoods the stack (l10n/a11y/etch); skeleton |

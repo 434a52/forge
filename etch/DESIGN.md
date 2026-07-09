@@ -9,6 +9,7 @@
   - **UI** — animated SVG where **Vue can bind to parts** (show/hide, drive transitions).
   - **PDF** — rendered as **PNG**.
   - **Email** — as **PNG**.
+  - *Server-side rasterisation (PDF/email PNG) runs in the **`press`** render service (Node + Playwright), not in-library.*
 
 ## North star (to firm up)
 1. **Hide the horrible** — clean components; the author never touches raw SVG.
