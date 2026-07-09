@@ -1,3 +1,3 @@
-module github.com/cjr--/forge/c5n
+module github.com/434a52/forge/c5n
 
 go 1.26.4
