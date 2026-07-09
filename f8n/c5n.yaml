@@ -1,0 +1,14 @@
+# c5n build manifest — the single authoritative statement of targets + I/O, and the
+# manifest the drift-guard checks against (all targets, all paths in one place).
+#
+# NOTE: the emitter isn't built yet. The files under the `out:` dirs are hand-written as
+# the golden target `c5n build` must reproduce byte-for-byte. This manifest pins where they go.
+#
+# namespace is F8n (NOT a sub-namespace): the generated tables are `partial class`
+# extensions of the hand-written Currency/Country, so they must share their namespace.
+targets:
+  csharp: { out: dotnet/Generated/, namespace: F8n }
+  ts:     { out: ts/src/generated/ }
+sources:
+  schema: schema/*.yaml
+  data:   data/**/*.yaml
