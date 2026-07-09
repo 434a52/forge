@@ -1,6 +1,6 @@
 # CLAUDE.md — forge
 
-Monorepo for the codegen-coupled stack (`c5n`, `f8n`, `l10n`, `doppel`, …). **Private during development.** Design docs live in each project dir (`c5n/DESIGN.md`, `f8n/DESIGN.md`, `l10n/DESIGN.md`, …).
+Monorepo for the codegen-coupled stack (`c5n`, `f8n`, `l10n`, `a11y`, `doppel`, `etch`, `scribe`, `portfolio`, …). **Private during development.** Design docs live in each project dir (`c5n/DESIGN.md`, `f8n/DESIGN.md`, `l10n/DESIGN.md`, …).
 
 ## Instruction context
 

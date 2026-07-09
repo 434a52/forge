@@ -12,6 +12,10 @@ A monorepo for the codegen-coupled stack: the engine (`c5n`) and the libraries b
 | `f8n/` | domain primitives — Money, Currency, Country, rates, temporal (C# + TS) |
 | `l10n/` | localisation library — cross-language, on-device, tree-shakable (C# + TS); design only for now |
 | `doppel/` | realistic locale-aware synthetic data (coherent personas) on f8n + l10n — the visual demo; design only for now |
+| `a11y/` | accessibility toolkit — accessible primitives, announcer, provable/auditable compliance; skeleton |
+| `etch/` | SVG component system — clean vector components, localised + accessible, one source → UI/PDF/email; skeleton |
+| `scribe/` | Razor engine for email + PDF — clean components → email HTML + PDF (Playwright); skeleton |
+| `portfolio/` | bespoke Vue/Vite showcase site that dogfoods the stack (l10n/a11y/etch); skeleton |
 
 First milestone: the **c5n + f8n walking skeleton** (one currency → C# + TS constant → one golden vector proving parity). `l10n`, `doppel`, and the rest land as they're built.
 
