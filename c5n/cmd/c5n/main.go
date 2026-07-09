@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+
+	"github.com/434a52/forge/c5n/internal/c5n"
 )
 
 func main() {
@@ -20,8 +22,14 @@ func main() {
 	case "version":
 		fmt.Println("c5n " + buildVersion())
 	case "build":
-		// The real codegen lands here: read schema + data, emit code.
-		fmt.Println("build: not implemented yet")
+		dir := "."
+		if len(os.Args) >= 3 {
+			dir = os.Args[2]
+		}
+		if err := c5n.Build(dir); err != nil {
+			fmt.Fprintln(os.Stderr, "c5n build: "+err.Error())
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "c5n: unknown command %q\n", command)
 		printUsage()
@@ -43,5 +51,5 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: c5n <command>")
 	fmt.Fprintln(os.Stderr, "commands:")
 	fmt.Fprintln(os.Stderr, "  version   print the c5n version")
-	fmt.Fprintln(os.Stderr, "  build     read schema + data, emit code (not implemented yet)")
+	fmt.Fprintln(os.Stderr, "  build [dir]   read schema + data under dir (default .), emit code")
 }
