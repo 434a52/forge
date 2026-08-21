@@ -17,8 +17,9 @@ A monorepo for the codegen-coupled stack: the engine (`c5n`) and the libraries b
 | `scribe/` | TS/Vue engine for email + PDF — clean components → email HTML + PDF (Playwright); engine open; skeleton |
 | `press/` | render service (Node) — hosts Playwright; renders scribe + etch → PDF/PNG; HTTP boundary for C# backends; skeleton |
 | `palette/` | design-tokens layer — canonical design values → c5n → CSS vars + typed TS; the shared design foundation; skeleton |
-| `lattice/` | Vue component library — accessible + localised + token-driven; curated, not comprehensive; skeleton |
+| `lattice/` | component library — Vue-first, React live; accessible + localised + token-driven; curated, not comprehensive; skeleton |
 | `portfolio/` | bespoke Vue/Vite showcase site that dogfoods the stack (l10n/a11y/etch); skeleton |
+| `ampersand/` | consumer home-electrification planner — fit solar+battery+heat pump+EV chargers under a ~100A supply, optimally; the product flagship; `ballast` constraint-solver engine; skeleton |
 
 First milestone: the **c5n + f8n walking skeleton** (one currency → C# + TS constant → one golden vector proving parity). `l10n`, `doppel`, and the rest land as they're built.
 
