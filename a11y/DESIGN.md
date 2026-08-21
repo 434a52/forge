@@ -8,6 +8,9 @@ Accessibility toolkit for the front-end stack, in the `c5n`/`f8n`/`l10n` family.
 - **Compliance checking** — an analyser (build-time) + testing helpers that flag a11y problems.
 - **Provable, auditable accessibility (the distinctive part)** — ingests **axe** reports and **runtime tooling that runs alongside the Vue app**, recording a11y data so QAs can document coverage **with proof** — auditable, WCAG-style evidence. Echoes the stack's provable/auditable theme (`f8n` diff→PR, `l10n` approval gate).
 
+## Framework strategy — Vue-first, React live
+The reusable a11y core is **framework-agnostic TS** — *pure services, called not spread*: the **announcer** (`announce(msg, politeness)`), **interaction state as pure transition functions** (`(state, event) => state`), and **ARIA computation** (`ariaFor…(state) → attribute data`). Each framework binds that core in its **own idiom** (Vue `ref`/`computed`; React hooks). The **bright line is the prop-getter/binding layer**: share *what the ARIA attributes are*, never *how they land on the element* — a shared adapter layer satisfies neither a Vue nor a React dev, whereas pure services keep both fully idiomatic. This is where the hard interaction/a11y edge-cases (typeahead, roving tabindex, focus trap) get written **once**, so the frameworks can't drift. **Vue-first** (primary target — fine-grained reactivity binds the core near-free); **React kept live**, with cross-framework parity **proven by conformance vectors run against both implementations** (the same spec→vectors technique the rest of the family uses, applied across frameworks instead of languages). This is the **floor** of the shared front-end layer; `lattice`/`etch` build on it.
+
 ## North star (to firm up)
 1. **Accessible by construction** — the primitives make the correct thing the default.
 2. **Provable compliance** — coverage documented with evidence, not asserted.
@@ -21,4 +24,5 @@ Accessibility toolkit for the front-end stack, in the `c5n`/`f8n`/`l10n` family.
 - **Analyser + test helpers** — build-time checks (hard-coded a11y violations, missing labels) and test-time assertions.
 
 ## Change log
+- 2026-08-21: **framework strategy set — Vue-first, React live; primitives reframed as *pure behaviour services*, not Vue base-classes.** The shared a11y core is framework-agnostic TS (announcer, pure state-transition fns, ARIA-computation); each framework binds it idiomatically; the shared/idiomatic line is the prop-getter/binding layer. Cross-framework parity proven by conformance vectors against both implementations, not shared bindings. This is the *floor* of the shared front-end layer.
 - 2026-07-09: created — scaffolded as a forge project dir (base-layer front-end lib). Seed frame: accessible primitives + announcer + provable/auditable compliance; the l10n×a11y translator-UI seam noted. Agenda open.
