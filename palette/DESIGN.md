@@ -8,6 +8,16 @@
 - **The shared foundation** — `lattice`, `etch`, `scribe`, `portfolio` all draw from the same tokens → one design source of truth across UI / SVG / email / PDF.
 - **Theming** — swap token sets to re-skin/re-brand; the components don't change.
 
+## Taste bar (visual craft)
+palette is not just "tokens exist" — it's the **taste artifact** of the stack: the layer where visual craft is made systematic and legible. Because every front-end surface draws from these tokens, taste invested here **compounds** into `lattice`, `etch`, `scribe`, and `portfolio`. The bar to hit, calibrated against reference systems (Linear, Vercel/Geist, Radix Themes, Stripe):
+- **Colour** — a perceptually-even ramp (OKLCH), semantic aliases over base scales, **contrast pairs accessible by construction** (WCAG AA+ *provable*, not asserted — the a11y ∩ visual overlap).
+- **Type** — a considered modular scale; deliberate line-height and measure.
+- **Spacing** — a consistent rhythm (a base unit + scale, not ad-hoc values).
+- **Motion** — a small, disciplined set of durations/easings; restraint over flourish.
+- **Dark mode** — a first-class token set, not an afterthought inversion.
+
+"Visual quality, tested" applies here: contrast is provable in the token *data*; downstream visual-regression guards the rendered result.
+
 ## North star (to firm up)
 1. **Single source of truth** for design values, across every surface.
 2. **Codegen-native, cross-target** — one source → CSS + TS (+ more) via `c5n`.
@@ -28,5 +38,6 @@ So it's a **logic-bearing in-tree emitter** (like c5n's shared value-emitter) �
 - **Consumers** — how `lattice`/`etch`/`scribe` bind (CSS vars at runtime vs typed constants at build).
 
 ## Change log
+- 2026-08-21: **taste bar added — palette is the stack's *visual-craft* artifact, not just "tokens exist."** Named the reference bar (OKLCH ramp with provable contrast pairs, modular type scale, spacing rhythm, disciplined motion, first-class dark mode; calibrated against Linear/Geist/Radix Themes). Taste here compounds downstream; "visual quality, tested" (contrast provable in the token data).
 - 2026-07-10: **CSS-emission mechanism decided** — a logic-bearing in-tree `c5n` emitter: a Go pre-render pass resolves media-query/cascade precedence into an ordered flat rule-list, and a simple `text/template` (stdlib, no dep) renders it. No fancier template engine; logic stays in Go, template stays declarative. (Mirrored in `c5n`'s emitter section — in-tree emitters may carry logic; portable-template-language deferred to third-party bundles.)
 - 2026-07-09: created — scaffolded as a forge project dir (base-layer + `c5n` consumer). Seed frame: design tokens as canonical data → `c5n` → CSS custom properties + typed TS; the shared design foundation for the front-end; theming via token-set swap. Notes a new **c5n CSS emitter** as the driver. Agenda open.
