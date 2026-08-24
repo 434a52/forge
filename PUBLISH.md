@@ -47,7 +47,7 @@ Own each namespace *before* first publish — squatting-insurance is cheap, and 
 
 - **Licences.** Suite is MIT (permissive). **Open:** `f8n`'s data-source licence — Debian `iso-codes` is LGPL-2.1, and the EU sui-generis database right complicates embedding it as generated code inside an MIT library; leaning **CLDR-only** (Unicode licence, permissive). Resolve *before* the f8n data pipeline bakes it in. See `f8n/DESIGN.md` + `f8n/data-lookups.md`; `doppel/DESIGN.md` carries the parallel CC0-over-CC-BY-SA analysis.
 - **Registry reservations** — see *Claiming the namespaces* above (npm org + NuGet prefix; claim early, independent of publish timing).
-- **Community files.** LICENSE, SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md — per published package, or at the root for the monorepo.
+- **Community files.** **LICENSE — done (MIT, root).** Still open: SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md — per published package, or at the root for the monorepo. (The MIT grant covers the code; `f8n`'s **data-source** licence is a separate open item above.)
 - **Signing / provenance.** Reproducible + signed releases (the c5n zero-dep-binary story); npm provenance; consider Sigstore. See `c5n/DESIGN.md`.
 - **Versioning tooling.** Independent semver per package — changesets (npm) + a tagging scheme (NuGet/Go). Decide before more than one package publishes.
 

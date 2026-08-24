@@ -28,3 +28,7 @@ Each project's design docs live in its own dir (`<project>/DESIGN.md`).
 ## Conventions
 
 See `CLAUDE.md`.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
