@@ -41,7 +41,7 @@ Own each namespace *before* first publish — squatting-insurance is cheap, and 
 - Prefix requested: **`434a52`** (`434a52.*`) — hex-stem cohesion chosen over a readable PascalCase prefix (see *Namespacing*).
 - **Verify current process + criteria** on Microsoft's NuGet docs — this program's rules drift (training-data knowledge).
 
-**Domains** — `434a52.io` / `.com` (+ the rest) *owned* at the registrar. Point `434a52.io` at the org's GitHub Pages when the shopfront lands.
+**Domains** — `434a52.io` / `.com` (+ the rest) *owned* at the registrar. Point `434a52.io` at the shopfront when it lands (host not yet fixed — GitHub Pages or a static host; the domain mapping is the same either way).
 
 ## Other pre-publish irreversibles (stubs — flesh out before first publish)
 
