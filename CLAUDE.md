@@ -25,6 +25,22 @@ Credit Claude as co-contributor on all git activity:
 - **Conformance = spec → golden vectors → code.** The prose spec is the oracle; edges hand-verified against an authority.
 - **Codegen-native by construction** — every generative library is designed *for* c5n from day one.
 
+## This repo is public-bound — keep it clean
+
+Everything here is written to be read by strangers. **Design docs and change logs describe the engineering, not the circumstances around it.**
+
+Never write into this repo:
+
+- **Personal or colleague names**, or anything identifying an individual.
+- **Employer, client or project references** from paid work — including implicit ones (what a client's sector is, when a contract ends, who a manager is).
+- **Career, hiring or commercial framing** — why a project helps a job search, who it's meant to impress, IP or contract reasoning.
+- **First-person notes about the author** or their background.
+- **Strategy, sequencing or roadmap material.** This repo records *what* and *why technically* — never *why now*.
+
+**Change logs are the highest-risk surface.** They're written in the moment, when private-repo assumptions still hold, and never re-read. Apply the same rule to them as to the prose above them.
+
+If a rationale is genuinely about circumstance rather than engineering, the entry here should simply omit it — not gesture at it.
+
 ## Conventions
 
 - UK English. Terse, load-bearing docs; change logs newest-first.
