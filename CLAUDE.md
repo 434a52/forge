@@ -46,6 +46,19 @@ If a rationale is genuinely about circumstance rather than engineering, the entr
 
 - UK English. Terse, load-bearing docs; change logs newest-first.
 - Build and test commands live under **Build & test** below.
+- Language-agnostic code style (naming, braces, no clever one-liners) is in `llm/synced/pair-coding.md`. Below is only what is specific to a language, or specific to this repo.
+
+### C#
+
+- **`var` when the right-hand side names the type** — constructors, literals, casts, and calls whose name carries it (`var reduced = Canonical(num, den);`). Explicit only where the type is not on the line, or where a declaration is separated from its assignment, which `var` cannot express.
+- **A bare integer literal is an `int`.** `var x = 10;` narrows where a `BigInteger` or `decimal` was intended, and the code still compiles. In numeric work, suffix the literal (`10m`) or name the type. This matters here more than in most codebases: the whole substrate is scaled integers and exact fractions, and a silent narrowing is exactly the class of bug that survives review and fails a vector.
+
+### TypeScript
+
+- **`const` by default**; `let` only where the value is reassigned.
+- **`bigint` literals carry `n`** — `100n`, never `100`. A bare literal is a `number`, and mixing the two throws at runtime. The same narrowing trap as C#'s bare `int`, one language over.
+- **Never `Number(...)` on a value that must stay exact.** It is a float64 and silently loses anything past 2^53 — the defect that has already appeared twice here, once decoding data through `any` and once as the obvious way to parse a decimal. Parse digit strings into exact integer parts instead.
+- **Import specifiers carry `.js`** — `from "./percentage.js"`. TypeScript resolves it back to the `.ts` source, and Node's ESM loader requires it; without it the compiled output only resolves inside a bundler. The c5n TypeScript writer emits this, and hand-written files must match.
 
 ## Build & test
 
