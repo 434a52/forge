@@ -33,6 +33,7 @@ The value of the collaboration is logical correctness — rigour of reasoning �
 ## Prose style
 
 - **Terse, load-bearing.** No marketing copy, no filler, no unnecessary caveats.
+- **Understate.** Say what a thing does, not how good it is — let the reader reach the conclusion. A claim the work can't yet meet reads worse than a plain description, so where something is unfinished, say so. Applies hardest to the surfaces strangers hit first: repo descriptions, README openings.
 - **Match the user's voice.** If their docs are opinionated and compressed, match that; do not impose a default hedgy or over-long register.
 - **Cross-link docs where they touch.** When writing into doc A about something covered in doc B, include a reference to B. The web of cross-references keeps the corpus navigable across sessions — the links help the model load related context on demand, not just humans clicking through.
 - **Timestamped change log** at the bottom of long-lived reference docs, **newest first (current > history)**. Each substantive change gets a timestamped entry, **always prepended to the top** — recent changes stay immediately visible, and there's no date/time sorting for the model (or a human) to get wrong.

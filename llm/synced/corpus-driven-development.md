@@ -23,6 +23,8 @@ The structure turns the build into a stream of **small, ordered, individually-ve
 
 ## The feedback loop
 
+- **Write the test in the same step as the code.** Not in a later "add tests" phase — that phase is where tests go to die, and until one exists the step is only *claimed* to work. A step isn't done when it compiles; it's done when something executes it.
+- **Review does not substitute for execution.** Reading every line catches the wrong approach, the wrong name, the wrong structure. It does not catch a value quietly altered in transit — a number that can't hold what was written, a boundary off by one, an encoding that round-trips wrong. Those are invisible on the page and obvious to a test, so where a piece of code exists precisely *so that* something arrives unchanged, that is the first test to write.
 - **Strong types and tests are the guardrail.** The model writes a step, runs the build and tests, observes, and self-corrects — before you look. A well-typed, well-tested codebase is what makes LLM coding *reliable*, not just fast.
 - **The editing hand still applies at the code level.** The model will produce plausible-but-wrong code; tests catch much, you catch the rest. You're the reviewer.
 
