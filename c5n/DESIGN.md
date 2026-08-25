@@ -268,7 +268,15 @@ One **language-neutral dataset** of input → expected, and a thin **runner per 
    runners (C#, TS, …)
 ```
 
-The correctness guarantee is therefore exactly this: **a human checking, once per non-obvious rule, that the expected value says what the authority says.** Everything beneath that is consistency, which is what machines are for. The cost is bounded because it is per *rule*, not per vector — edges are hand-derived and authority-checked, and the interior is generated from them.
+**But for most of what is under test, there is no external authority — and that is by design.** `HalfEven(2.5) = 2` is not a policy question, it is the definition of the mode. Vectors target **component functions** (`divide-with-rounding` per mode, `allocate` per rule, `Rational` normalisation, minor↔major conversion at a scale) whose semantics the library *defines*, so there is nothing to consult. Deliberately **not** under test: compositions like "VAT on an invoice", where per-line-vs-per-invoice and the mandated rounding are the *caller's* choices — which is why `RoundingMode` is caller-supplied and `AllocationRule` has no default. A rule the library refuses to choose is not a rule its vectors can encode.
+
+An authority binds in three places, none of them arithmetic, and each has its own pipeline:
+
+- **Format grammars** — the ISO-8601 subset, E.164. The standard sets accept/reject, so the **negative** cases carry the weight and the citation is the standard itself.
+- **Canonical data** — ISO 4217 minor units, ISO 3166 codes, IANA zones. Not vectors: the cron → diff → **PR** pipeline, which already has a human gate.
+- **Locale formatting** — CLDR, and `l10n`'s, derived-and-baked against its own fixtures.
+
+So the residual human cost is small and lands where it belongs: confirming a **grammar** matches its standard, and reviewing a **data** diff. Everything else is consistency, which is what machines are for.
 
 **A clean session stays useful as a technique, not a stage.** Give a fresh session a rule's rationale and nothing else, and see whether it reproduces the expected value. Read a disagreement as *"the rationale is underspecified"* rather than *"the arithmetic is wrong"* — fresh context catches transcription slips but shares trained-in defaults, so it will bless a wrong rule that is clearly stated. Used that way it audits how precisely the rule is written, which is the part most worth auditing.
 
@@ -289,7 +297,7 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 
 **Seam now (cheap, don't skip — retrofitting is expensive):**
 - **deterministic / invariant serialization** on every runtime type (the future driver diffs on it; f8n already assigns `Money` invariant-serialize — hold that line everywhere);
-- **rationale recorded beside each non-obvious vector as its edge is derived**, while the reasoning is fresh (else the dataset is archaeology later, and nobody can tell a deliberate expected value from a typo);
+- **rationale recorded beside a vector wherever its expected value is not self-evident**, while the reasoning is fresh (else the dataset is archaeology later, and nobody can tell a deliberate expected value from a typo);
 - a **stable vector format** — treat it as a published contract from the first vector, since third-party runners read it.
 
 **Room (backfill freely — additive, no rework):**

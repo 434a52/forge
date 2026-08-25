@@ -110,11 +110,34 @@ and the whole point of building it now is to have it *while* the conformance-cri
 behaviour is written rather than retrofitted around it. The first vectors are deliberately
 the rational parse rather than money math, so the harness is shaped on an easy case.
 
-- [ ] **3.1 — the vector format.** A language-neutral file of input → expected, each group
-  naming its rule and — where the expected value is not self-evident — carrying a rationale
-  and authority citation **beside the numbers**. A **published contract from the first
-  vector**, since third-party runners read it. JSON rather than YAML, so a runner needs no
-  parser dependency in either language.
+- [ ] **3.1 — the vector format, and what it targets.** A language-neutral file of
+  input → expected. A **published contract from the first vector**, since third-party runners
+  read it; JSON rather than YAML, so a runner needs no parser dependency in either language.
+
+  Vectors target **component functions**, never compositions: `divide-with-rounding` per
+  mode, `allocate` per rule, `Rational` normalise/parse/canonical, minor↔major conversion at
+  a scale, the wire grammar, the ISO subset. Not "VAT on an invoice" — per-line-vs-per-invoice
+  and the mandated rounding are the *caller's* choices, which is exactly why `RoundingMode` is
+  caller-supplied and `AllocationRule` has no default. A rule f8n refuses to choose is not one
+  its vectors can encode.
+
+  Four kinds of case, and the distinction matters when reading a failure:
+
+  | kind | source | notes |
+  |---|---|---|
+  | bulk | generated from C#, frozen on capture | a later behaviour change goes red, and someone decides which value was right |
+  | boundary | generated too — *chosen* for coverage, not derived differently (ties, zero, sign, scale limits, seams) | |
+  | reject | first-class for the grammars, where the standard sets the boundary | cite the standard |
+  | authority example | transcribed from a published worked example | marked as such: its value originates outside our code |
+
+  Plus **properties**, which carry no expected value at all and so depend on no
+  implementation: `sum(allocate(m, rule)) == m`, `allocate(−m) == −allocate(m)`,
+  `FromPercent("17.5") == FromProportion("0.175")`, `parse(canonical(x)) == x`. Several are
+  already stated as invariants in `../f8n/DESIGN.md` and are sitting there unused as checks.
+
+  **Standing rule:** an implementation is written from the rule, **never from the dataset**.
+  That is what keeps captured values audited — an independently-written TS turns a captured
+  C# slip red. Generate the TS implementation from the vectors and that check is gone.
 - [ ] **3.2 — a `run-vector` CLI per language.** Deliberately thin: read the dataset,
   execute each case, report what it got. No assertions and no test framework — the
   comparison belongs to the driver, so a third party can point the same driver at their own
