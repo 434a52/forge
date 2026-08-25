@@ -37,8 +37,9 @@ are each a Go test plus an error path; no emitter change.
   `engine` job (`go test` + the drift-guard, asking *do the sources still produce the
   committed output?*) and one job per target (*does the committed output still compile?*).
   Actions pinned by commit SHA — build-time tooling is the highest-risk supply-chain
-  surface. The two target jobs become a real `strategy.matrix` once the vector runner
-  gives them a shared command.
+  surface — with `.github/dependabot.yml` supplying the update path that pinning otherwise
+  removes. The two target jobs become a real `strategy.matrix` once the vector runner gives
+  them a shared command.
 - [ ] **1.2 — reject undeclared fields in a data row.** `rowArgs` reads only the fields the
   schema declares, so a misspelled or stale field in a data file is dropped in silence and
   the output still compiles. Same class as the `float64` bug — invisible on the page, wrong
@@ -118,11 +119,21 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
 - **`tree<T>`, `fromJson`, validation emit, contract identity, rule identity** — designed
   and consumer-driven; l10n and portfolio pull these in, not f8n.
 - **Swift, and any third target.**
-- **Exact toolchain pinning in CI** — a feature-band pin is enough for a compile check;
-  exactness becomes load-bearing once behaviour is under test, where a runtime-library bump
-  can move formatted output.
+- [ ] **Exact toolchain pinning in CI** — *outstanding*. The target jobs currently ask only
+  *does it compile*, and a feature band (`10.0.x`, `22.x`) answers that. Once vectors run,
+  the toolchain version becomes part of the result — a runtime-library bump can move
+  formatted output, which is why `DESIGN.md` files pinning under **correctness, not
+  hygiene**. **Do it in the same pass as the conformance runner**, not before: pinning
+  exactly while nothing tests behaviour buys nothing and rots into manual bumps. Go needs
+  nothing — `go-version-file` already defers to `go.mod`, which cannot drift from the module
+  it builds.
 
 ## Change log
+- 2026-08-25: **Dependabot for the SHA-pinned actions**, and the Node pin loosened to a
+  feature band to match .NET — the *compile-only doesn't need exactness* argument applies
+  equally to both, and the lockfile plus `npm ci` is what actually fixes the TypeScript
+  version. **Exact toolchain pinning is now tracked as an outstanding task** under Rooms,
+  with its trigger named: the conformance runner, same pass.
 - 2026-08-25: created. Records Phase 0 as landed, and sequences the next work: validation
   gates (Phase 1), the tax-rate slice that the next f8n data file requires (Phase 2), and
   the spec seed that must run alongside it (Phase 3). Two defects found while surveying the

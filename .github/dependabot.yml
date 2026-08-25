@@ -1,0 +1,21 @@
+# Dependabot — the update path that SHA-pinning otherwise removes.
+#
+# Actions in ci.yml are pinned to commit SHAs, because a tag is a mutable pointer and an
+# action runs in the same job as the source, with the repo token. That closes the moved-tag
+# attack, but it also means a pinned action never receives a fix. Dependabot restores the
+# other half: it understands SHA-pinned actions, bumps the SHA, and rewrites the trailing
+# `# vX.Y.Z` comment — so an update arrives as a reviewable PR rather than silently, or
+# never.
+#
+# Scoped to actions only. Go (one dependency) and npm (one dev dependency) are small enough
+# to track by hand; add ecosystems here when that stops being true.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

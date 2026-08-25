@@ -15,7 +15,12 @@
 # target jobs collapse into one `strategy.matrix` (they will finally share a command).
 #
 # Actions are pinned to commit SHAs, not tags: a tag can be moved, and build-time tooling
-# is the highest-risk supply-chain surface (llm/synced/design-rigour.md).
+# is the highest-risk supply-chain surface (llm/synced/design-rigour.md). Updates to those
+# pins arrive as Dependabot PRs — see .github/dependabot.yml, which is the half that makes
+# pinning safe rather than merely frozen.
+#
+# Toolchain versions are pinned only as tightly as today's checks justify; tightening them
+# is a tracked task (c5n/c5n.plan.md → Rooms).
 
 name: ci
 
@@ -59,9 +64,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # Feature-band pin. An exact pin is what DESIGN.md asks for, and it becomes
-          # load-bearing once behaviour is under test (an ICU bump can move formatted
-          # output); a compile-only check does not need it yet.
+          # Feature band. An exact pin is what DESIGN.md asks for, and it becomes
+          # load-bearing once behaviour is under test — an ICU bump can move formatted
+          # output — but a compile-only check does not need it. Tracked as an outstanding
+          # task in c5n/c5n.plan.md → Rooms; it lands with the conformance runner.
           dotnet-version: '10.0.x'
 
       - name: dotnet build
@@ -75,7 +81,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.11.0'
+          # Feature band, matching the .NET pin below. What actually fixes the TypeScript
+          # version is the committed lockfile plus `npm ci`; Node's own version barely
+          # touches tsc's output, so an exact pin here would rot for no gain today.
+          node-version: '22.x'
 
       # `npm ci` installs strictly from the committed lockfile — a locked install, not a
       # resolve-and-update, so CI cannot silently pick up a different TypeScript.
