@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using System.Text;
 
 namespace F8n;
 
@@ -53,7 +54,7 @@ public readonly struct Percentage : IEquatable<Percentage>
         {
             return new Percentage(BigInteger.Zero, BigInteger.One);
         }
-        BigInteger divisor = BigInteger.GreatestCommonDivisor(BigInteger.Abs(num), den);
+        var divisor = BigInteger.GreatestCommonDivisor(BigInteger.Abs(num), den);
         return new Percentage(num / divisor, den / divisor);
     }
 
@@ -62,7 +63,7 @@ public readonly struct Percentage : IEquatable<Percentage>
     /// </summary>
     public static Percentage FromProportion(string value)
     {
-        (BigInteger num, BigInteger den) = ParseDecimal(value);
+        var (num, den) = ParseDecimal(value);
         return Canonical(num, den);
     }
 
@@ -72,7 +73,7 @@ public readonly struct Percentage : IEquatable<Percentage>
     /// </summary>
     public static Percentage FromPercent(string value)
     {
-        (BigInteger num, BigInteger den) = ParseDecimal(value);
+        var (num, den) = ParseDecimal(value);
         return Canonical(num, den * 100);
     }
 
@@ -106,20 +107,20 @@ public readonly struct Percentage : IEquatable<Percentage>
         {
             throw new FormatException("expected a canonical proportion, got null");
         }
-        int slash = canonical.IndexOf('/');
+        var slash = canonical.IndexOf('/');
         if (slash < 0)
         {
             throw new FormatException($"expected \"num/den\", got \"{canonical}\"");
         }
 
-        BigInteger num = ParseInteger(canonical.Substring(0, slash), allowSign: true);
-        BigInteger den = ParseInteger(canonical.Substring(slash + 1), allowSign: false);
+        var num = ParseInteger(canonical.Substring(0, slash), allowSign: true);
+        var den = ParseInteger(canonical.Substring(slash + 1), allowSign: false);
         if (den.IsZero)
         {
             throw new FormatException("a denominator of zero is not a proportion");
         }
 
-        Percentage reduced = Canonical(num, den);
+        var reduced = Canonical(num, den);
         if (reduced.Num != num || reduced.Den != den)
         {
             throw new FormatException($"\"{canonical}\" is not canonical — expected \"{reduced}\"");
@@ -146,8 +147,8 @@ public readonly struct Percentage : IEquatable<Percentage>
             throw new FormatException("expected a decimal value, got an empty string");
         }
 
-        int index = 0;
-        bool negative = false;
+        var index = 0;
+        var negative = false;
         if (value[0] == '-')
         {
             negative = true;
@@ -156,12 +157,12 @@ public readonly struct Percentage : IEquatable<Percentage>
 
         // Integer part: at least one digit, and no leading zero unless it is exactly "0" —
         // so a value has one spelling rather than several that all parse.
-        int integerStart = index;
+        var integerStart = index;
         while (index < value.Length && value[index] >= '0' && value[index] <= '9')
         {
             index++;
         }
-        int integerDigits = index - integerStart;
+        var integerDigits = index - integerStart;
         if (integerDigits == 0)
         {
             throw new FormatException($"\"{value}\" has no digit before the decimal point");
@@ -171,13 +172,13 @@ public readonly struct Percentage : IEquatable<Percentage>
             throw new FormatException($"\"{value}\" has a leading zero");
         }
 
-        var digits = new System.Text.StringBuilder(value.Substring(integerStart, integerDigits));
-        int fractionDigits = 0;
+        var digits = new StringBuilder(value.Substring(integerStart, integerDigits));
+        var fractionDigits = 0;
 
         if (index < value.Length && value[index] == '.')
         {
             index++;
-            int fractionStart = index;
+            var fractionStart = index;
             while (index < value.Length && value[index] >= '0' && value[index] <= '9')
             {
                 index++;
@@ -195,7 +196,7 @@ public readonly struct Percentage : IEquatable<Percentage>
             throw new FormatException($"\"{value}\" is not a plain decimal — unexpected '{value[index]}'");
         }
 
-        BigInteger num = BigInteger.Parse(digits.ToString(), CultureInfo.InvariantCulture);
+        var num = BigInteger.Parse(digits.ToString(), CultureInfo.InvariantCulture);
         if (negative)
         {
             num = -num;
@@ -211,8 +212,8 @@ public readonly struct Percentage : IEquatable<Percentage>
             throw new FormatException("expected an integer, got an empty string");
         }
 
-        int start = 0;
-        bool negative = false;
+        var start = 0;
+        var negative = false;
         if (allowSign && text[0] == '-')
         {
             negative = true;
@@ -234,7 +235,7 @@ public readonly struct Percentage : IEquatable<Percentage>
             throw new FormatException($"\"{text}\" has a leading zero");
         }
 
-        BigInteger value = BigInteger.Parse(text.Substring(start), CultureInfo.InvariantCulture);
+        var value = BigInteger.Parse(text.Substring(start), CultureInfo.InvariantCulture);
         return negative ? -value : value;
     }
 

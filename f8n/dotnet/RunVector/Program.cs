@@ -29,15 +29,15 @@ catch (Exception ex)
 
 var results = new JsonArray();
 
-foreach (JsonNode? group in document["groups"]!.AsArray())
+foreach (var group in document["groups"]!.AsArray())
 {
-    foreach (JsonNode? testCase in group!["cases"]!.AsArray())
+    foreach (var testCase in group!["cases"]!.AsArray())
     {
-        string id = testCase!["id"]!.GetValue<string>();
-        string op = testCase["op"]!.GetValue<string>();
+        var id = testCase!["id"]!.GetValue<string>();
+        var op = testCase["op"]!.GetValue<string>();
 
         var inputs = new List<string>();
-        foreach (JsonNode? input in testCase["in"]!.AsArray())
+        foreach (var input in testCase["in"]!.AsArray())
         {
             inputs.Add(input!.GetValue<string>());
         }
