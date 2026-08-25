@@ -73,8 +73,8 @@ compiling.
 
 - ✓ **2.0a — rate authoring form.** Resolved: `Percentage.Parse` accepts a plain decimal as
   well as the canonical `num/den`. See `DESIGN.md` → *Open questions* for the two spec rules
-  it pins — the stored value is the fraction rather than the percent number, and the decimal
-  parser must not route through a binary float.
+  it pins — the stored value is the dimensionless proportion rather than the percent number,
+  and the decimal parser must not route through a binary float.
 - [ ] **2.0b — output path per source, not per type.** Still open; blocks 2.4, not 2.1.
 - [ ] **2.1 — nested ctor + `Percentage`.** The third value shape: the field's declared type
   is constructible, so the emitter recurses. This is the conformance-critical heart — a
