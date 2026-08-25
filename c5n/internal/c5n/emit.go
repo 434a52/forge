@@ -103,10 +103,68 @@ func construct(typ *Type, target string, args []string, byField map[string]strin
 	return out, nil
 }
 
+// valueContext carries what the value-emitter needs that varies by target: how this
+// language spells a reference to another table's constant, and a hook to record the
+// hand-written types the output ends up referring to (TS needs them as imports; C# does
+// not, since a generated partial shares its namespace).
+type valueContext struct {
+	schema Schema
+	target string
+	ref    func(fieldType, value string) string
+	use    func(typeName string)
+}
+
+// maxNestDepth stops a schema whose type refers to itself from recursing forever. A
+// single-field type that contains itself can never be constructed from a finite value, so
+// hitting this is a schema bug, not a deep-but-valid case.
+const maxNestDepth = 16
+
+// emitValue resolves one authored value to its emitted expression, driven purely by the
+// declared type — the three shapes the design names:
+//
+//   - literal    — a scalar, formatted the way this target spells it
+//   - reference  — a keyed table row, emitted as the constant's name
+//   - nested ctor — a constructible type, built from the value (recursing)
+//
+// This is the conformance-critical part: a wrong expression here is wrong data in every
+// target at once, which is why it is one shared resolver rather than a branch per writer.
+func emitValue(declType, text string, ctx valueContext, depth int) (string, error) {
+	switch {
+	case isReference(declType, ctx.schema):
+		return ctx.ref(declType, text), nil
+	case isScalar(declType):
+		return scalarLiteral(declType, text, ctx.target)
+	}
+
+	typ, ok := ctx.schema[declType]
+	if !ok {
+		return "", fmt.Errorf("declared type %s is not in the schema", declType)
+	}
+	if depth >= maxNestDepth {
+		return "", fmt.Errorf("type %s nests more than %d deep — a type that contains itself cannot be built from a value", declType, maxNestDepth)
+	}
+
+	// A constructible type with exactly one field may be authored as a plain scalar: the
+	// scalar *is* that field's value. It is the wrapper case — Percentage over an exact
+	// Rational — and it keeps the data file free of a nested mapping that would carry no
+	// information (`rate: 20`, not `rate: { value: 20 }`). Multi-field nesting needs an
+	// authored mapping, which the data reader does not accept yet.
+	if len(typ.Fields) != 1 {
+		return "", fmt.Errorf("%s has %d fields, so it cannot be built from the single value %q — only a one-field type may be authored as a scalar", declType, len(typ.Fields), text)
+	}
+
+	inner := typ.Fields[0]
+	arg, err := emitValue(inner.Type, text, ctx, depth+1)
+	if err != nil {
+		return "", fmt.Errorf("%s.%s: %w", typ.Name, inner.Name, err)
+	}
+	ctx.use(typ.Name)
+	return construct(typ, ctx.target, []string{arg}, map[string]string{inner.Name: arg})
+}
+
 // rowArgs resolves every declared field of a row to its emitted argument expression,
-// returning them both positionally (ctor order) and by name (for recipes). resolveRef
-// renders a reference the way the target spells it, and lets the caller record imports.
-func rowArgs(row Row, typ *Type, schema Schema, target string, resolveRef func(fieldType, value string) string) ([]string, map[string]string, error) {
+// returning them both positionally (ctor order) and by name (for recipes).
+func rowArgs(row Row, typ *Type, ctx valueContext) ([]string, map[string]string, error) {
 	args := make([]string, len(typ.Fields))
 	byField := make(map[string]string, len(typ.Fields))
 	for i, f := range typ.Fields {
@@ -114,16 +172,7 @@ func rowArgs(row Row, typ *Type, schema Schema, target string, resolveRef func(f
 		if !ok {
 			return nil, nil, fmt.Errorf("field %s: missing from row", f.Name)
 		}
-		var arg string
-		var err error
-		switch {
-		case isReference(f.Type, schema):
-			arg = resolveRef(f.Type, text)
-		case isScalar(f.Type):
-			arg, err = scalarLiteral(f.Type, text, target)
-		default:
-			err = fmt.Errorf("type %s is neither scalar nor a keyed reference", f.Type)
-		}
+		arg, err := emitValue(f.Type, text, ctx, 0)
 		if err != nil {
 			return nil, nil, fmt.Errorf("field %s: %w", f.Name, err)
 		}
@@ -145,8 +194,14 @@ func rowName(row Row, typ *Type) (string, error) {
 
 // emitCSharp renders one table<T> to a C# partial-class file of static readonly constants.
 func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc string) (string, error) {
-	// C# references a sibling constant by its qualified name: Currency.GBP.
-	ref := func(fieldType, value string) string { return fieldType + "." + value }
+	// C# references a sibling constant by its qualified name: Currency.GBP. Hand-written
+	// types need no import — a generated partial shares their namespace.
+	ctx := valueContext{
+		schema: schema,
+		target: "csharp",
+		ref:    func(fieldType, value string) string { return fieldType + "." + value },
+		use:    func(string) {},
+	}
 
 	var body strings.Builder
 	for _, row := range t.Rows {
@@ -154,7 +209,7 @@ func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc str
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", typ.Name, err)
 		}
-		args, byField, err := rowArgs(row, typ, schema, "csharp", ref)
+		args, byField, err := rowArgs(row, typ, ctx)
 		if err != nil {
 			return "", fmt.Errorf("%s.%s: %w", typ.Name, name, err)
 		}
@@ -181,15 +236,29 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 	refVals := map[string][]string{} // refType -> referenced values (deduped, ordered)
 	seen := map[string]bool{}        // "refType.value" already imported
 
-	ref := func(fieldType, value string) string {
-		if key := fieldType + "." + value; !seen[key] {
-			seen[key] = true
-			if _, ok := refVals[fieldType]; !ok {
-				refOrder = append(refOrder, fieldType)
+	var usedOrder []string    // hand-written types the values construct, first-appearance
+	used := map[string]bool{} // already noted
+
+	ctx := valueContext{
+		schema: schema,
+		target: "ts",
+		ref: func(fieldType, value string) string {
+			if key := fieldType + "." + value; !seen[key] {
+				seen[key] = true
+				if _, ok := refVals[fieldType]; !ok {
+					refOrder = append(refOrder, fieldType)
+				}
+				refVals[fieldType] = append(refVals[fieldType], value)
 			}
-			refVals[fieldType] = append(refVals[fieldType], value)
-		}
-		return value // bare imported name
+			return value // bare imported name
+		},
+		// TS has no partial, so a constructed hand-written type has to be imported by name.
+		use: func(typeName string) {
+			if typeName != typ.Name && !used[typeName] {
+				used[typeName] = true
+				usedOrder = append(usedOrder, typeName)
+			}
+		},
 	}
 
 	var body strings.Builder
@@ -198,7 +267,7 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", typ.Name, err)
 		}
-		args, byField, err := rowArgs(row, typ, schema, "ts", ref)
+		args, byField, err := rowArgs(row, typ, ctx)
 		if err != nil {
 			return "", fmt.Errorf("%s.%s: %w", typ.Name, name, err)
 		}
@@ -211,8 +280,11 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 
 	var b strings.Builder
 	b.WriteString(tsHeader(schemaSrc, t.Source))
-	// The hand-written type lives one dir up from the generated file, by convention.
+	// The hand-written types live one dir up from the generated file, by convention.
 	fmt.Fprintf(&b, "import { %s } from \"../%s\";\n", typ.Name, strings.ToLower(typ.Name))
+	for _, u := range usedOrder {
+		fmt.Fprintf(&b, "import { %s } from \"../%s\";\n", u, strings.ToLower(u))
+	}
 	for _, rt := range refOrder {
 		fmt.Fprintf(&b, "import { %s } from \"./%s.data\";\n", strings.Join(refVals[rt], ", "), strings.ToLower(rt))
 	}

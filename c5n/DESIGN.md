@@ -133,6 +133,8 @@ For each field the emitter resolves, **driven purely by the declared field type*
 - **reference** — the value matches an enum member or a table row's **key-field value** → emit the reference (`Currency.GBP`, `TaxType.VAT`), not a fresh ctor;
 - **nested ctor** — the field's type is a constructible type → recurse (`Percentage.FromPercent("20")`).
 
+**A one-field type may be authored as a plain scalar.** `rate: 17.5`, not `rate: { value: 17.5 }` — the mapping would carry nothing the schema does not already say. This is the wrapper case (`Percentage` over an exact `Rational`) and it is what keeps data files reading like the documents they were copied from. A type with more than one field needs an authored mapping, since which field a lone scalar belongs to would otherwise be a guess; that is an error naming the type and the value it was handed.
+
 This resolver is target-independent and **shared core** — it is the one logic-bearing part, and where correctness lives (a wrong ctor is wrong data *everywhere* it's emitted), so it is what the golden vectors must pin hardest.
 
 Emitted C# from the data above (generated `partial`s; hand-written `Country.cs` / `Money.cs` hold behaviour):

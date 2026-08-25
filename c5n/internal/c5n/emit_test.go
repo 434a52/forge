@@ -197,3 +197,98 @@ func TestReferenceResolution(t *testing.T) {
 		t.Errorf("TS: want import %s\ngot:\n%s", want, ts)
 	}
 }
+
+// wrapperSchema is the nested-ctor shape: a table row whose field is typed as a
+// constructible one-field type — Percentage over an exact Rational, as f8n declares it.
+func wrapperSchema(emit map[string]string) Schema {
+	return Schema{
+		"Band": &Type{
+			Name: "Band", External: true, Key: "code",
+			Fields: []Field{{Name: "code", Type: "string"}, {Name: "rate", Type: "Percentage"}},
+		},
+		"Percentage": &Type{
+			Name: "Percentage", External: true, Emit: emit,
+			Fields: []Field{{Name: "value", Type: "string"}},
+		},
+	}
+}
+
+// The third value shape. A one-field type may be authored as a plain scalar — `rate: 17.5`,
+// not `rate: { value: 17.5 }` — since the mapping would carry no information the schema does
+// not already have. The recipe is what names the unit, in one reviewed place.
+func TestNestedCtorUsesTheRecipe(t *testing.T) {
+	tbl := mustTable(t, "type: table<Band>\nitems:\n  - { code: STANDARD, rate: 17.5 }\n")
+	schema := wrapperSchema(map[string]string{
+		"csharp": "Percentage.FromPercent({value})",
+		"ts":     "Percentage.fromPercent({value})",
+	})
+
+	cs, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	if err != nil {
+		t.Fatalf("emitCSharp: %v", err)
+	}
+	if want := `new Band("STANDARD", Percentage.FromPercent("17.5"))`; !strings.Contains(cs, want) {
+		t.Errorf("C#: want %s\ngot:\n%s", want, cs)
+	}
+
+	ts, err := emitTS(tbl, schema["Band"], schema, "s.yaml")
+	if err != nil {
+		t.Fatalf("emitTS: %v", err)
+	}
+	if want := `new Band("STANDARD", Percentage.fromPercent("17.5"))`; !strings.Contains(ts, want) {
+		t.Errorf("TS: want %s\ngot:\n%s", want, ts)
+	}
+	// TS has no partial, so a constructed hand-written type must be imported by name or the
+	// generated module does not compile.
+	if want := `import { Percentage } from "../percentage";`; !strings.Contains(ts, want) {
+		t.Errorf("TS: missing import for the nested type\ngot:\n%s", ts)
+	}
+}
+
+// Without a recipe the positional convention applies, exactly as for a top-level type.
+func TestNestedCtorFallsBackToConvention(t *testing.T) {
+	tbl := mustTable(t, "type: table<Band>\nitems:\n  - { code: STANDARD, rate: 17.5 }\n")
+	schema := wrapperSchema(nil)
+
+	cs, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	if err != nil {
+		t.Fatalf("emitCSharp: %v", err)
+	}
+	if want := `new Band("STANDARD", new Percentage("17.5"))`; !strings.Contains(cs, want) {
+		t.Errorf("want %s\ngot:\n%s", want, cs)
+	}
+}
+
+// The scalar shorthand only makes sense for one field. With more, which field the value
+// belongs to is a guess — so it is an error naming the type and what it was handed.
+func TestMultiFieldNestedTypeIsRejected(t *testing.T) {
+	schema := wrapperSchema(nil)
+	schema["Percentage"].Fields = append(schema["Percentage"].Fields, Field{Name: "basis", Type: "string"})
+	tbl := mustTable(t, "type: table<Band>\nitems:\n  - { code: STANDARD, rate: 17.5 }\n")
+
+	_, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	if err == nil {
+		t.Fatal("want an error for a multi-field nested type, got nil")
+	}
+	for _, want := range []string{"Percentage", "2 fields", `"17.5"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error is missing %q: %v", want, err)
+		}
+	}
+}
+
+// A one-field type whose field is itself cannot be built from any finite value; without a
+// depth guard the emitter would recurse until the stack gave out.
+func TestSelfNestingTypeIsRejected(t *testing.T) {
+	schema := wrapperSchema(nil)
+	schema["Percentage"].Fields = []Field{{Name: "value", Type: "Percentage"}}
+	tbl := mustTable(t, "type: table<Band>\nitems:\n  - { code: STANDARD, rate: 17.5 }\n")
+
+	_, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	if err == nil {
+		t.Fatal("want an error for a self-nesting type, got nil")
+	}
+	if !strings.Contains(err.Error(), "contains itself") {
+		t.Errorf("want a self-nesting message, got: %v", err)
+	}
+}

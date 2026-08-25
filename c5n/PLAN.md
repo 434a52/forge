@@ -82,11 +82,19 @@ compiling.
   path-per-type-name behaviour, under which two files declaring one type silently overwrote
   each other and the drift-guard then failed immediately after a clean build. A duplicate
   output path is now an error rather than a race between writes.
-- [ ] **2.1 — nested ctor + `Percentage`.** The third value shape: the field's declared type
-  is constructible, so the emitter recurses. This is the conformance-critical heart — a
-  wrong expression here is wrong data in every target at once, and it is what the golden
-  vectors must pin hardest. Needs f8n's hand-written `Percentage` (an exact `Rational`) in
-  C# and TS: parse, canonical form, equality — not yet the arithmetic.
+- ✓ **2.1a — nested ctor (the third value shape).** The field's declared type is
+  constructible, so the emitter recurses. A **one-field type may be authored as a plain
+  scalar** (`rate: 17.5`, not `rate: { value: 17.5 }`) — the wrapper case, and what keeps
+  data reading like the document it came from; more than one field needs a mapping, since a
+  lone scalar would otherwise be a guess. The three shapes are now one shared recursive
+  resolver rather than a branch per writer, which is the point: a wrong expression here is
+  wrong data in every target at once. TS additionally imports the hand-written types the
+  values construct; C# needs nothing, sharing the namespace via `partial`.
+- [ ] **2.1b — `Percentage`, hand-written in C# and TS.** An exact `Rational`:
+  `FromPercent`, `FromProportion`, canonical `num/den` form, equality, strict `Parse` for the
+  canonical form. Not the arithmetic yet. C# takes `decimal` where TS takes a string — each
+  language's own exact literal — and TS must reject a `number` at the type level. First
+  entries in the vector dataset (3.1) land with it.
 - [ ] **2.2 — enums.** The first type c5n emits a **body** for rather than instances. Forces
   the member-normalisation question `DESIGN.md` lists: how data's `standard` becomes
   `TaxCategory.Standard` in C#, and what the TS spelling is (`enum` vs a string-literal
