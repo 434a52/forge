@@ -17,6 +17,7 @@ Credit Claude as co-contributor on all git activity:
 ## Structure
 
 - One project per top-level dir (`c5n/`, `f8n/`, …), each **self-contained** (own build + package) so it can `git subtree split` out later.
+- Each project dir carries **`DESIGN.md`** (the *why* — accretes, keeps a change log) and, once it is being built, **`{project}.plan.md`** (the *what next* — phases → steps, `✓` marked in place, retired when the work lands). Named for the project so it stays self-identifying in an editor tab and after a subtree split.
 - One root `llm/` — shared instruction context synced from i10s (`synced/` = pinned + managed; `local/` = yours), referenced via `@llm/index.md`.
 
 ## Architecture (the load-bearing decisions)
@@ -35,7 +36,7 @@ Never write into this repo:
 - **Employer, client or project references** from paid work — including implicit ones (what a client's sector is, when a contract ends, who a manager is).
 - **Career, hiring or commercial framing** — why a project helps a job search, who it's meant to impress, IP or contract reasoning.
 - **First-person notes about the author** or their background.
-- **Strategy, sequencing or roadmap material.** This repo records *what* and *why technically* — never *why now*.
+- **Strategy, roadmap or circumstance.** This repo records *what* and *why technically* — never *why now*. **Technical sequencing is not covered by this**: an implementation plan ordered by dependency belongs here, because a contributor needs it to pick up the work. What stays out is *why this project, why now* — priority between projects, what a piece of work is for, what it is timed against.
 
 **Change logs are the highest-risk surface.** They're written in the moment, when private-repo assumptions still hold, and never re-read. Apply the same rule to them as to the prose above them.
 
@@ -44,4 +45,15 @@ If a rationale is genuinely about circumstance rather than engineering, the entr
 ## Conventions
 
 - UK English. Terse, load-bearing docs; change logs newest-first.
-- Build/test commands per project — added here as each lands.
+- Build and test commands live under **Build & test** below.
+
+## Build & test
+
+The four gates. `.github/workflows/ci.yml` runs exactly these on push and PR.
+
+- **c5n engine** — `cd c5n && go test ./...`
+- **drift-guard** — `cd c5n && go build -o "$TMPDIR/c5n" ./cmd/c5n && "$TMPDIR/c5n" check ../f8n`
+  (build the CLI to a path outside the module: a bare `go build ./...` drops an in-tree
+  binary, which is why `/c5n/c5n` is gitignored. `c5n build ../f8n` regenerates.)
+- **C# target** — `cd f8n/dotnet && dotnet build`
+- **TS target** — `cd f8n/ts && npm ci && npm run typecheck`

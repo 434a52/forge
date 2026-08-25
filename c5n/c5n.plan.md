@@ -1,0 +1,130 @@
+# c5n — implementation plan
+
+The *what next*, ordered by dependency. `DESIGN.md` holds the *why*; this holds the
+sequence and doubles as session handover — the next session starts at the first unchecked
+step. Mark `✓` in place as steps land.
+
+**Where it stands:** `build` and `check` work end to end for `table<T>`, and f8n's
+Currency/Country slice is generated, committed, and green in all four gates. The engine
+emits **two of the three value shapes** and **one of the four collection kinds**.
+
+## Phase 0 — bootstrap ✓
+
+- ✓ CLI shell — `version`, `build [dir]`, `check [dir]`
+- ✓ schema reader — the typed IDL, parsed via `yaml.Node` so declaration order survives
+  (field order is ctor-arg order)
+- ✓ data reader — values carried as **authored source text**, never decoded through `any`
+  (decoding routes every fractional value through `float64`, which silently alters a
+  declared decimal before it is ever emitted)
+- ✓ value-emitter — the **literal** and **reference** shapes
+- ✓ `emit:` recipes — per-target construction override; `{field}` substitutes the *fully
+  emitted* argument expression, so a recipe chooses the shape of the call, never the
+  spelling of a literal
+- ✓ C# and TS writers for `table<T>`, each with its co-existence convention
+  (`partial class` / a `*.data.ts` module the hand-written index imports)
+- ✓ `c5n build` reproduces f8n's hand-written golden output byte-for-byte
+- ✓ `c5n check` drift-guard — out-of-date, missing, and orphaned output
+
+**Checkpoint:** `go test`, `c5n check`, `dotnet build`, `tsc --noEmit` all green on f8n's
+Currency/Country slice.
+
+## Phase 1 — gates and validation
+
+Cheap, and it is what stops a silently-wrong emit reaching committed output. Steps 1.2–1.4
+are each a Go test plus an error path; no emitter change.
+
+- ✓ **1.1 — CI** (`.github/workflows/ci.yml`). Runs the four gates on push and PR: one
+  `engine` job (`go test` + the drift-guard, asking *do the sources still produce the
+  committed output?*) and one job per target (*does the committed output still compile?*).
+  Actions pinned by commit SHA — build-time tooling is the highest-risk supply-chain
+  surface. The two target jobs become a real `strategy.matrix` once the vector runner
+  gives them a shared command.
+- [ ] **1.2 — reject undeclared fields in a data row.** `rowArgs` reads only the fields the
+  schema declares, so a misspelled or stale field in a data file is dropped in silence and
+  the output still compiles. Same class as the `float64` bug — invisible on the page, wrong
+  in the artefact. Strict-reject, naming the file and row.
+- [ ] **1.3 — resolve references inside c5n.** A `defaultCurrency: XXX` with no matching row
+  is emitted as `Currency.XXX` and caught only by the target compiler — that is, only if
+  someone compiles. c5n holds the table in memory; it should fail with the source location.
+- [ ] **1.4 — key uniqueness per `table<T>`.** The structural guarantee the map authoring
+  form gave for free, and the one the identity section of `DESIGN.md` requires. Duplicate
+  keys currently emit duplicate constant names.
+
+**Checkpoint:** each failure above produces a c5n error naming its source location, covered
+by a test.
+
+## Phase 2 — the tax-rate slice
+
+f8n's next data file (`data/tax/gb-vat.yaml`, worked through in `DESIGN.md` →
+*Generation model*) needs exactly four engine capabilities that do not exist — and nothing
+else. One vertical slice, ordered by dependency; every step ends with both targets
+compiling.
+
+- [ ] **2.0 — settle the two open questions** (`DESIGN.md` → *Open questions*). The rate
+  authoring form blocks 2.1; output-path-per-source blocks 2.4. Decide, record in
+  `DESIGN.md`, then build.
+- [ ] **2.1 — nested ctor + `Percentage`.** The third value shape: the field's declared type
+  is constructible, so the emitter recurses. This is the conformance-critical heart — a
+  wrong expression here is wrong data in every target at once, and it is what the golden
+  vectors must pin hardest. Needs f8n's hand-written `Percentage` (an exact `Rational`) in
+  C# and TS: parse, canonical form, equality — not yet the arithmetic.
+- [ ] **2.2 — enums.** The first type c5n emits a **body** for rather than instances. Forces
+  the member-normalisation question `DESIGN.md` lists: how data's `standard` becomes
+  `TaxCategory.Standard` in C#, and what the TS spelling is (`enum` vs a string-literal
+  union).
+- [ ] **2.3 — `common:`-hoisting.** Merge `common ⊕ row` at the data layer; emitted output is
+  identical to writing every field out. A reader change with no emitter change — third
+  because 2.1 and 2.2 settle what a row is.
+- [ ] **2.4 — `EffectiveDated<T>`.** The second collection kind. The envelope/value split is
+  driven by the declared type — a row's `from:` is the envelope *because the type said so*,
+  and a missing or wrong key is a validation error, never a guess. Needs a hand-written
+  `EffectiveDated<T>` on both sides (minimal as-of lookup only). Note the data shape departs
+  from `table<T>`: several **named series** per file, not one `type:` + `items:`.
+
+**Checkpoint:** `gb-vat.yaml` generates, compiles and typechecks in both targets, drift-guard
+green.
+
+## Phase 3 — seed the spec
+
+The prose spec is the oracle (`DESIGN.md` → *Specification as the oracle*), and the seam it
+rests on is *worked examples accreted as the edges are derived, while the reasoning is
+fresh*. That seam needs a file to accrete **into** before Phase 2 derives its first rules;
+writing it afterwards is archaeology, which is the accepted debt `DESIGN.md` already names.
+Runs alongside Phase 2, not after it.
+
+- [ ] **3.1 — create the spec**, first section: `Rational` canonical form, decimal→rational
+  exactness, and exactly what `Percentage.Parse` accepts. Written with 2.1.
+- [ ] **3.2 — hand-derive the boundary vectors for those rules** into the spec as worked
+  examples, each checked against the authority (here, the maths). A fully-specified worked
+  example *is* a golden vector.
+
+**Checkpoint:** a clean session, given only the spec, reproduces every worked example
+exactly. If it cannot, the spec is underspecified — that is the test, and a disagreement is
+signal about precision rather than arithmetic.
+
+## Rooms — deferred, additive, no rework
+
+Listed so they read as *chosen*, not forgotten. Each backfills without touching what
+Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
+
+- **Conformance runner** — the uniform Go driver plus per-language `run-vector` CLIs. The
+  direction is already chosen; it is what turns the target CI jobs into a real matrix, and
+  it doubles as the third-party audit tool.
+- **Template-bundle refactor of the emitters.** In-tree writers may carry Go logic by
+  design; the pure-template bar exists for *third-party* bundles, and no third-party bundle
+  consumer exists yet.
+- **Distribution** — npm/NuGet wrappers, the MSBuild target, the Vite plugin, signing,
+  reproducible-build attestation. Waits for a consumer outside this repo.
+- **`tree<T>`, `fromJson`, validation emit, contract identity, rule identity** — designed
+  and consumer-driven; l10n and portfolio pull these in, not f8n.
+- **Swift, and any third target.**
+- **Exact toolchain pinning in CI** — a feature-band pin is enough for a compile check;
+  exactness becomes load-bearing once behaviour is under test, where a runtime-library bump
+  can move formatted output.
+
+## Change log
+- 2026-08-25: created. Records Phase 0 as landed, and sequences the next work: validation
+  gates (Phase 1), the tax-rate slice that the next f8n data file requires (Phase 2), and
+  the spec seed that must run alongside it (Phase 3). Two defects found while surveying the
+  engine are captured as 1.2 and 1.3, and two design questions raised by the slice are
+  routed to `DESIGN.md` → *Open questions* rather than decided here.

@@ -1,0 +1,85 @@
+# CI — the four gates that were, until now, a person remembering to run four commands.
+#
+# The work splits cleanly in two, and the two halves answer different questions:
+#
+#   engine   — do the *sources* still produce the committed generated output?
+#              (go test + `c5n check`, the drift-guard)
+#   csharp   \  do the *committed* generated files still compile, in each target?
+#   ts       /  (one job per target toolchain)
+#
+# They are deliberately independent, not chained: a drift failure and a compile failure
+# are different diagnoses, and seeing both at once beats seeing the first one twice.
+#
+# Per c5n/DESIGN.md there are two checks per target — "compiles?" and "conforms?". Only
+# the first exists today; the vector runner is a deferred room. When it lands, the two
+# target jobs collapse into one `strategy.matrix` (they will finally share a command).
+#
+# Actions are pinned to commit SHAs, not tags: a tag can be moved, and build-time tooling
+# is the highest-risk supply-chain surface (llm/synced/design-rigour.md).
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: engine (go test + drift-guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Pinned by go.mod rather than restated here — one statement of the version,
+          # and CI cannot drift from the module it is testing.
+          go-version-file: c5n/go.mod
+
+      - name: go test
+        working-directory: c5n
+        run: go test ./...
+
+      - name: c5n check (drift-guard)
+        working-directory: c5n
+        run: |
+          go build -o "$RUNNER_TEMP/c5n" ./cmd/c5n
+          "$RUNNER_TEMP/c5n" check ../f8n
+
+  csharp:
+    name: csharp (generated output compiles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          # Feature-band pin. An exact pin is what DESIGN.md asks for, and it becomes
+          # load-bearing once behaviour is under test (an ICU bump can move formatted
+          # output); a compile-only check does not need it yet.
+          dotnet-version: '10.0.x'
+
+      - name: dotnet build
+        working-directory: f8n/dotnet
+        run: dotnet build --nologo
+
+  ts:
+    name: ts (generated output typechecks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.11.0'
+
+      # `npm ci` installs strictly from the committed lockfile — a locked install, not a
+      # resolve-and-update, so CI cannot silently pick up a different TypeScript.
+      - name: npm ci
+        working-directory: f8n/ts
+        run: npm ci
+
+      - name: tsc --noEmit
+        working-directory: f8n/ts
+        run: npm run typecheck
