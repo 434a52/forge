@@ -76,7 +76,12 @@ compiling.
   (`Percentage.FromPercent`); `Parse` stays the canonical wire form. See `DESIGN.md` →
   *Open questions* for what was rejected and why, and for the standing rule it generalises
   to — a bare number needing a unit or scale is constructed **by name**.
-- [ ] **2.0b — output path per source, not per type.** Still open; blocks 2.4, not 2.1.
+- ✓ **2.0b — output is named for what it declares.** A `table<T>` emits one unit per type,
+  merging every data file that feeds it, with rows in source order and the header naming all
+  of them; `EffectiveDated` will emit one unit per named series at 2.4. Replaces the previous
+  path-per-type-name behaviour, under which two files declaring one type silently overwrote
+  each other and the drift-guard then failed immediately after a clean build. A duplicate
+  output path is now an error rather than a race between writes.
 - [ ] **2.1 — nested ctor + `Percentage`.** The third value shape: the field's declared type
   is constructible, so the emitter recurses. This is the conformance-critical heart — a
   wrong expression here is wrong data in every target at once, and it is what the golden

@@ -16,6 +16,7 @@ type GenFile struct {
 	Rel     string // path relative to dir (for messages)
 	Content string
 	Target  string // "csharp" / "ts" — the emitting target
+	Source  string // the data file(s) it was emitted from
 }
 
 // targetExt maps a target to the filename suffix it owns, so the drift-guard can spot
@@ -59,15 +60,19 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 	}
 	sort.Strings(targetNames)
 
-	var files []GenFile
 	for _, t := range tables {
+		if t.Kind != "table" {
+			return nil, nil, fmt.Errorf("%s: collection kind %q not yet supported", t.Source, t.Kind)
+		}
+	}
+
+	var files []GenFile
+	emitters := map[string]string{} // output path -> the sources that produced it
+	for _, t := range mergeByEmittedType(tables) {
 		// Validate has already rejected an unknown type; the check keeps the lookup total.
 		typ, ok := schema[t.ElemType]
 		if !ok {
 			return nil, nil, fmt.Errorf("%s: unknown type %s", t.Source, t.ElemType)
-		}
-		if t.Kind != "table" {
-			return nil, nil, fmt.Errorf("%s: collection kind %q not yet supported", t.Source, t.Kind)
 		}
 		for _, name := range targetNames {
 			target := m.Targets[name]
@@ -86,10 +91,63 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 				return nil, nil, fmt.Errorf("emit %s/%s: %w", name, typ.Name, err)
 			}
 			rel, _ := filepath.Rel(dir, outPath)
-			files = append(files, GenFile{Path: outPath, Rel: rel, Content: code, Target: name})
+			// Two units resolving to one path means one silently overwrites the other, so
+			// it is an error rather than a race between writes. Unreachable while table<T>
+			// is the only kind — merging leaves one unit per type — but this is what keeps
+			// it unreachable as further kinds are added.
+			if prev, clash := emitters[outPath]; clash {
+				return nil, nil, fmt.Errorf("%s would be written twice — from %s and from %s", rel, prev, t.Source)
+			}
+			emitters[outPath] = t.Source
+			files = append(files, GenFile{Path: outPath, Rel: rel, Content: code, Target: name, Source: t.Source})
 		}
 	}
 	return files, m, nil
+}
+
+// mergeByEmittedType groups the loaded tables by what they are *emitted as*, because that
+// is what names the output file — not the file they happened to be authored in.
+//
+// A `table<T>` emits one unit per type: however many data files declare Currency rows, they
+// become one Currency.g.cs. Splitting reference data across files is an authoring
+// convenience — per region, per source, per reviewer — and the output should not inherit
+// that shape. Before this, two files declaring one type resolved to one path and the second
+// silently overwrote the first; `c5n check` then failed immediately after a clean build,
+// advising a rebuild that could not fix it.
+//
+// Rows keep source order: tables arrive sorted by path and rows in file order, so the merged
+// output is deterministic and each data file's rows stay contiguous in the diff.
+//
+// The unit is per *kind*, so this grows as kinds do — `EffectiveDated` will emit one unit
+// per named series rather than one per type, and will group accordingly.
+func mergeByEmittedType(tables []*Table) []*Table {
+	var order []string // element types in first-appearance order
+	merged := map[string]*Table{}
+	sources := map[string][]string{}
+
+	for _, t := range tables {
+		unit, seen := merged[t.ElemType]
+		if !seen {
+			clone := *t
+			clone.Rows = append([]Row(nil), t.Rows...)
+			merged[t.ElemType] = &clone
+			sources[t.ElemType] = []string{t.Source}
+			order = append(order, t.ElemType)
+			continue
+		}
+		unit.Rows = append(unit.Rows, t.Rows...)
+		sources[t.ElemType] = append(sources[t.ElemType], t.Source)
+	}
+
+	units := make([]*Table, 0, len(order))
+	for _, name := range order {
+		unit := merged[name]
+		// Provenance is every file that fed the unit, so the generated header still says
+		// where to go and looking at one source no longer tells half the story.
+		unit.Source = strings.Join(sources[name], " + ")
+		units = append(units, unit)
+	}
+	return units
 }
 
 // Build runs the full pipeline rooted at dir and writes the generated files.
