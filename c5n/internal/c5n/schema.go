@@ -18,7 +18,8 @@ type Type struct {
 	Name     string
 	External bool
 	Key      string
-	Fields   []Field // in declaration order — this is the ctor arg order
+	Fields   []Field           // in declaration order — this is the ctor arg order
+	Emit     map[string]string // target -> construction recipe; nil = positional-ctor convention
 }
 
 // Field is one declared field: a name and a declared type. The type is a scalar
@@ -92,13 +93,38 @@ func parseTypeDecl(decl *yaml.Node, t *Type) error {
 				return err
 			}
 			t.Fields = fields
-		case "kind", "emit":
-			// enum kinds and emit: overrides are deferred rooms — parsed-tolerant, not yet used.
+		case "emit":
+			recipes, err := parseEmit(val)
+			if err != nil {
+				return err
+			}
+			t.Emit = recipes
+		case "kind":
+			// enum kinds are a deferred room — parsed-tolerant, not yet used.
 		default:
 			return fmt.Errorf("unknown declaration key %q", key)
 		}
 	}
 	return nil
+}
+
+// parseEmit reads the per-type construction override: target -> recipe. A recipe is the
+// construction expression for one row, with {field} placeholders. It exists for the types
+// the positional-ctor convention can't build — factories, parse-from-string, singletons —
+// and it is per-target because the same value is constructed differently in each language.
+func parseEmit(node *yaml.Node) (map[string]string, error) {
+	if node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("emit must be a mapping of target -> recipe")
+	}
+	recipes := make(map[string]string, len(node.Content)/2)
+	for i := 0; i < len(node.Content); i += 2 {
+		target, recipe := node.Content[i], node.Content[i+1]
+		if recipe.Kind != yaml.ScalarNode {
+			return nil, fmt.Errorf("emit.%s must be a string recipe", target.Value)
+		}
+		recipes[target.Value] = recipe.Value
+	}
+	return recipes, nil
 }
 
 func parseFields(node *yaml.Node) ([]Field, error) {
