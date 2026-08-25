@@ -17,6 +17,11 @@ import (
 // rather than stopping at the first. A renamed or misspelled field usually breaks several
 // rows at once, and fixing them one error-per-run is a poor trade for whoever is editing
 // the data.
+//
+// Three checks, in the order their results are useful: fields the schema does not declare,
+// identities declared more than once, and references that name a row nothing declares. The
+// middle one builds the index the last one reads, so a duplicate is reported where it
+// happens rather than as a confusing knock-on further down.
 func Validate(schema Schema, tables []*Table) error {
 	var problems []string
 	for _, t := range tables {
@@ -27,6 +32,10 @@ func Validate(schema Schema, tables []*Table) error {
 		}
 		problems = append(problems, undeclaredFields(t, typ)...)
 	}
+
+	index, duplicates := buildKeyIndex(schema, tables)
+	problems = append(problems, duplicates...)
+	problems = append(problems, unresolvedReferences(schema, tables, index)...)
 
 	if len(problems) == 0 {
 		return nil
@@ -106,4 +115,110 @@ func declaredList(typ *Type) string {
 		names[i] = f.Name
 	}
 	return strings.Join(names, ", ")
+}
+
+// rowRef is where an identity was declared: the file, and the row's position in it. Enough
+// to send someone straight to the line that clashes.
+type rowRef struct {
+	Source string
+	Row    int // 1-based, matching how rowLabel counts
+}
+
+// keyIndex maps a type name to every identity declared for it: type -> key value -> where.
+// It is what makes a reference checkable — without it, c5n emits `Currency.GBP` on trust
+// and the target compiler is the first thing that knows whether GBP exists.
+type keyIndex map[string]map[string]rowRef
+
+// buildKeyIndex collects every declared identity, reporting any declared twice as it goes.
+//
+// Uniqueness is checked per *type*, not per file: two files both declaring Currency GBP is
+// the same collision as one file doing it twice, and it is the one the emitted output hides
+// — the second constant silently replaces the first, or the two land in one file that will
+// not compile. The identity section of DESIGN.md requires this uniqueness; the map
+// authoring form used to give it structurally, and the list form has to check for it.
+func buildKeyIndex(schema Schema, tables []*Table) (keyIndex, []string) {
+	index := keyIndex{}
+	var problems []string
+
+	for _, t := range tables {
+		typ, ok := schema[t.ElemType]
+		if !ok || typ.Key == "" {
+			continue // an unkeyed type has no identities; an unknown one is reported elsewhere
+		}
+		if _, ok := index[typ.Name]; !ok {
+			index[typ.Name] = map[string]rowRef{}
+		}
+
+		for i, row := range t.Rows {
+			key, ok := row[typ.Key]
+			if !ok {
+				problems = append(problems, fmt.Sprintf(
+					"%s, %s: no %s field, so the row has no identity",
+					t.Source, rowLabel(row, typ, i), typ.Key))
+				continue
+			}
+			if first, clash := index[typ.Name][key]; clash {
+				problems = append(problems, fmt.Sprintf(
+					"%s, %s: %s %q is already declared at %s row %d",
+					t.Source, rowLabel(row, typ, i), typ.Name, key, first.Source, first.Row))
+				continue
+			}
+			index[typ.Name][key] = rowRef{Source: t.Source, Row: i + 1}
+		}
+	}
+	return index, problems
+}
+
+// unresolvedReferences reports a reference field whose value names no declared row.
+//
+// c5n holds every table in memory, so it can answer this itself. Left unchecked, a stale or
+// mistyped reference is emitted verbatim — `Currency.XXX` — and the first thing to notice is
+// the target's compiler, which means it is caught only if someone compiles, reported against
+// generated code rather than the data file that is wrong, and reported once per language.
+func unresolvedReferences(schema Schema, tables []*Table, index keyIndex) []string {
+	var problems []string
+	for _, t := range tables {
+		typ, ok := schema[t.ElemType]
+		if !ok {
+			continue
+		}
+		for i, row := range t.Rows {
+			// Declaration order, so a row with several bad references reads top to bottom.
+			for _, f := range typ.Fields {
+				if !isReference(f.Type, schema) {
+					continue
+				}
+				value, ok := row[f.Name]
+				if !ok {
+					continue // a missing field is the writers' error, at the point they need it
+				}
+				if _, known := index[f.Type][value]; known {
+					continue
+				}
+				problems = append(problems, fmt.Sprintf(
+					"%s, %s: field %q references %s %q, which no row declares (%s)",
+					t.Source, rowLabel(row, typ, i), f.Name, f.Type, value, declaringSources(index, f.Type)))
+			}
+		}
+	}
+	return problems
+}
+
+// declaringSources says where the identities of a type come from, so the reader knows which
+// file to open. Naming the files beats listing the keys: a table can hold hundreds of rows,
+// and a wall of them buries the message that matters.
+func declaringSources(index keyIndex, typeName string) string {
+	if len(index[typeName]) == 0 {
+		return "no data file declares " + typeName
+	}
+	seen := map[string]bool{}
+	var sources []string
+	for _, ref := range index[typeName] {
+		if !seen[ref.Source] {
+			seen[ref.Source] = true
+			sources = append(sources, ref.Source)
+		}
+	}
+	sort.Strings(sources) // the index is a map; the message must not reorder between runs
+	return typeName + " rows come from " + strings.Join(sources, ", ")
 }

@@ -66,6 +66,9 @@ func quote(s string) string {
 
 // isReference reports whether a field's declared type is a keyed table type — i.e. a value
 // of that field names a constant in another generated table (Currency.GBP), not a literal.
+//
+// Whether the row it names actually exists is Validate's question, settled before any
+// writer runs, so a writer emits the reference without re-checking it.
 func isReference(declType string, schema Schema) bool {
 	t, ok := schema[declType]
 	return ok && t.Key != ""

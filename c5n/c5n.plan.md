@@ -28,7 +28,7 @@ emits **two of the three value shapes** and **one of the four collection kinds**
 **Checkpoint:** `go test`, `c5n check`, `dotnet build`, `tsc --noEmit` all green on f8n's
 Currency/Country slice.
 
-## Phase 1 — gates and validation
+## Phase 1 — gates and validation ✓
 
 Cheap, and it is what stops a silently-wrong emit reaching committed output. Steps 1.2–1.4
 are each a Go test plus an error path; no emitter change.
@@ -49,15 +49,20 @@ are each a Go test plus an error path; no emitter change.
   not the one that is wrong. Validation now runs once over schema + data before any writer
   sees them, reports every problem in one pass, and names the file, the row by its key, the
   offending field, and what is declared.
-- [ ] **1.3 — resolve references inside c5n.** A `defaultCurrency: XXX` with no matching row
-  is emitted as `Currency.XXX` and caught only by the target compiler — that is, only if
-  someone compiles. c5n holds the table in memory; it should fail with the source location.
-- [ ] **1.4 — key uniqueness per `table<T>`.** The structural guarantee the map authoring
-  form gave for free, and the one the identity section of `DESIGN.md` requires. Duplicate
-  keys currently emit duplicate constant names.
+- ✓ **1.3 — resolve references inside c5n.** A `defaultCurrency: XXX` with no matching row
+  was emitted verbatim as `Currency.XXX`, so the first thing to notice was the target's
+  compiler — meaning it was caught only if someone compiled, reported against generated code
+  rather than the data file that is wrong, and reported once per language. c5n holds every
+  table in memory, so it answers this itself and names where the real identities live.
+- ✓ **1.4 — key uniqueness.** Checked per *type* rather than per file: two files declaring
+  one identity is the same collision as one file doing it twice, and the harder one to see,
+  since neither file looks wrong alone. A row missing its key field is rejected too — it has
+  no name to emit a constant under.
 
-**Checkpoint:** each failure above produces a c5n error naming its source location, covered
-by a test.
+**Checkpoint reached.** Each failure produces a c5n error naming file, row and field, all
+problems reported in one run, and the ordering that makes the diagnosis good is pinned by an
+integration test through `generate` — remove the validation call and that test fails with
+the degraded message, rather than passing quietly.
 
 ## Phase 2 — the tax-rate slice
 
@@ -134,6 +139,13 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   it builds.
 
 ## Change log
+- 2026-08-25: **Phase 1 complete.** Validation is one pass over schema + data ahead of every
+  writer, holding three checks that share a key index: undeclared fields, identities declared
+  twice, and references naming a row nothing declares. Reference and uniqueness checking were
+  the ones the target compiler used to do — late, against the wrong artefact, once per
+  language. Added an integration test through `generate` pinning that validation runs *before*
+  the writers, since that ordering is what makes a misspelled key report the misspelling
+  rather than the absence it leaves behind.
 - 2026-08-25: **Dependabot for the SHA-pinned actions**, and the Node pin loosened to a
   feature band to match .NET — the *compile-only doesn't need exactness* argument applies
   equally to both, and the lockfile plus `npm ci` is what actually fixes the TypeScript
