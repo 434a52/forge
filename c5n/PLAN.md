@@ -103,32 +103,41 @@ compiling.
 **Checkpoint:** `gb-vat.yaml` generates, compiles and typechecks in both targets, drift-guard
 green.
 
-## Phase 3 — seed the spec
+## Phase 3 — the vector dataset and its runners
 
-The prose spec is the oracle (`DESIGN.md` → *Specification as the oracle*), and the seam it
-rests on is *worked examples accreted as the edges are derived, while the reasoning is
-fresh*. That seam needs a file to accrete **into** before Phase 2 derives its first rules;
-writing it afterwards is archaeology, which is the accepted debt `DESIGN.md` already names.
-Runs alongside Phase 2, not after it.
+Runs **alongside Phase 2, from 2.1 onwards** — not after it. The dataset is the parity net,
+and the whole point of building it now is to have it *while* the conformance-critical
+behaviour is written rather than retrofitted around it. The first vectors are deliberately
+the rational parse rather than money math, so the harness is shaped on an easy case.
 
-- [ ] **3.1 — create the spec**, first section: `Rational` canonical form, decimal→rational
-  exactness, and exactly what `Percentage.Parse` accepts. Written with 2.1.
-- [ ] **3.2 — hand-derive the boundary vectors for those rules** into the spec as worked
-  examples, each checked against the authority (here, the maths). A fully-specified worked
-  example *is* a golden vector.
+- [ ] **3.1 — the vector format.** A language-neutral file of input → expected, each group
+  naming its rule and — where the expected value is not self-evident — carrying a rationale
+  and authority citation **beside the numbers**. A **published contract from the first
+  vector**, since third-party runners read it. JSON rather than YAML, so a runner needs no
+  parser dependency in either language.
+- [ ] **3.2 — a `run-vector` CLI per language.** Deliberately thin: read the dataset,
+  execute each case, report what it got. No assertions and no test framework — the
+  comparison belongs to the driver, so a third party can point the same driver at their own
+  implementation.
+- [ ] **3.3 — the uniform Go driver.** Invokes each language's CLI, compares against
+  expected, reports divergence. This is also the audit tool; there is not a second one.
+- [ ] **3.4 — wire it into CI.** What finally collapses the two target jobs into a real
+  `strategy.matrix`: they share a command at last. Exact toolchain pinning lands in the same
+  pass (see *Rooms*), because from here a runtime-library version can move a result.
 
-**Checkpoint:** a clean session, given only the spec, reproduces every worked example
-exactly. If it cannot, the spec is underspecified — that is the test, and a disagreement is
-signal about precision rather than arithmetic.
+**Checkpoint:** `Percentage.FromPercent` conformance runs in CI across both languages from
+one dataset — and changing a digit in the C# implementation turns the run red. A parity net
+that has never been seen to fail is not yet a parity net.
 
 ## Rooms — deferred, additive, no rework
 
 Listed so they read as *chosen*, not forgotten. Each backfills without touching what
 Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
 
-- **Conformance runner** — the uniform Go driver plus per-language `run-vector` CLIs. The
-  direction is already chosen; it is what turns the target CI jobs into a real matrix, and
-  it doubles as the third-party audit tool.
+- **Native per-language harnesses** — running the same vectors from `dotnet test` / `vitest`
+  for editor integration and familiar failure output. A convenience on top of the uniform
+  driver (Phase 3), never a replacement: nothing may assume a native-only harness, or the
+  neutral runner stops being the thing a third party can audit with.
 - **Template-bundle refactor of the emitters.** In-tree writers may carry Go logic by
   design; the pure-template bar exists for *third-party* bundles, and no third-party bundle
   consumer exists yet.
@@ -141,12 +150,21 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   *does it compile*, and a feature band (`10.0.x`, `22.x`) answers that. Once vectors run,
   the toolchain version becomes part of the result — a runtime-library bump can move
   formatted output, which is why `DESIGN.md` files pinning under **correctness, not
-  hygiene**. **Do it in the same pass as the conformance runner**, not before: pinning
-  exactly while nothing tests behaviour buys nothing and rots into manual bumps. Go needs
+  hygiene**. **Do it in the same pass as Phase 3.4**, not before: pinning exactly while
+  nothing tests behaviour buys nothing and rots into manual bumps. Go needs
   nothing — `go-version-file` already defers to `go.mod`, which cannot drift from the module
   it builds.
 
 ## Change log
+- 2026-08-25: **Phase 3 is the vector dataset and its runners, not a prose spec** — and it
+  runs alongside Phase 2 rather than after it. The separate specification is cut (see
+  `DESIGN.md`): it was carrying weight only because the runner had been deferred, and it
+  restated the obvious for every rule whose expected value is self-evident. Rationale and
+  authority citation now live **beside the vector** they explain. The conformance runner
+  moves out of *Rooms* onto the critical path; what stays a room is the native per-language
+  harness, as a convenience over the neutral driver. Also resolved **2.0b** — output is named
+  for what it declares, so a `table<T>` emits one unit per type across however many files
+  feed it.
 - 2026-08-25: **Phase 1 complete.** Validation is one pass over schema + data ahead of every
   writer, holding three checks that share a key index: undeclared fields, identities declared
   twice, and references naming a row nothing declares. Reference and uniqueness checking were
@@ -161,6 +179,6 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   with its trigger named: the conformance runner, same pass.
 - 2026-08-25: created. Records Phase 0 as landed, and sequences the next work: validation
   gates (Phase 1), the tax-rate slice that the next f8n data file requires (Phase 2), and
-  the spec seed that must run alongside it (Phase 3). Two defects found while surveying the
+  the vector dataset and runners that must run alongside it (Phase 3). Two defects found while surveying the
   engine are captured as 1.2 and 1.3, and two design questions raised by the slice are
   routed to `DESIGN.md` → *Open questions* rather than decided here.

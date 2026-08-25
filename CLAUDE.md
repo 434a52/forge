@@ -23,7 +23,7 @@ Credit Claude as co-contributor on all git activity:
 ## Architecture (the load-bearing decisions)
 
 - **c5n generates data + a thin typed boundary; behaviour is hand-written per language**, verified identical by golden vectors — "generate the wiring, hand-write the algorithm".
-- **Conformance = spec → golden vectors → code.** The prose spec is the oracle; edges hand-verified against an authority.
+- **Conformance = one language-neutral vector dataset → a thin runner per language.** Parity is transitive through the shared dataset, so a new target is one more spoke. Each non-obvious vector carries its rationale and authority citation *beside the numbers*. Green proves every language matches the dataset — never that the dataset is right; that stays one human pass per rule.
 - **Codegen-native by construction** — every generative library is designed *for* c5n from day one.
 
 ## This repo is public-bound — keep it clean

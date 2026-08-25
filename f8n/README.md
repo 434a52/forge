@@ -6,4 +6,4 @@ Design: `./DESIGN.md`, `./data-lookups.md`.
 
 **Status: early.** The Currency and Country tables are generated from `data/` by c5n and
 compile in both targets. The money and rate types — the hand-written behaviour, and the
-spec that verifies it — are still to come.
+conformance vectors that verify it — are still to come.
