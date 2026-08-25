@@ -38,6 +38,9 @@ jobs:
           # Pinned by go.mod rather than restated here — one statement of the version,
           # and CI cannot drift from the module it is testing.
           go-version-file: c5n/go.mod
+          # setup-go looks for the module at the repo root by default, so the cache key
+          # has to be pointed at the real one — without this the module cache never hits.
+          cache-dependency-path: c5n/go.sum
 
       - name: go test
         working-directory: c5n
