@@ -74,6 +74,41 @@ jobs:
         working-directory: f8n/dotnet
         run: dotnet build --nologo
 
+  conform:
+    name: conform (both languages against one dataset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: c5n/go.mod
+          cache-dependency-path: c5n/go.sum
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.x'
+
+      - name: build the runners
+        run: |
+          dotnet build f8n/dotnet/RunVector --nologo
+          npm ci --prefix f8n/ts
+          npm run build --prefix f8n/ts
+
+      # The driver owns the comparison, so this is the only place a divergence is judged —
+      # and the same invocation is what a third party would use to audit their own
+      # implementation against the dataset.
+      - name: conform
+        working-directory: c5n
+        run: |
+          go build -o "$RUNNER_TEMP/conform" ./cmd/conform
+          cd ..
+          "$RUNNER_TEMP/conform" \
+            -vectors f8n/vectors/percentage.json \
+            -runner "csharp=dotnet run --project f8n/dotnet/RunVector --no-build --" \
+            -runner "ts=node f8n/ts/dist/run-vector.js"
+
   ts:
     name: ts (generated output typechecks)
     runs-on: ubuntu-latest

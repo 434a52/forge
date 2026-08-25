@@ -1,0 +1,315 @@
+{
+  "version": 1,
+  "subject": "f8n.Percentage",
+  "groups": [
+    {
+      "rule": "fromPercent — the percent number a document states, held as a proportion",
+      "cases": [
+        {
+          "id": "pct-whole",
+          "op": "fromPercent",
+          "in": [
+            "20"
+          ],
+          "out": "1/5"
+        },
+        {
+          "id": "pct-fraction",
+          "op": "fromPercent",
+          "in": [
+            "17.5"
+          ],
+          "out": "7/40"
+        },
+        {
+          "id": "pct-two-dp",
+          "op": "fromPercent",
+          "in": [
+            "4.52"
+          ],
+          "note": "4.52% is exactly 113/2500 — the example f8n/DESIGN.md uses for why the substrate is a Rational and not a fixed-point decimal.",
+          "out": "113/2500"
+        },
+        {
+          "id": "pct-zero",
+          "op": "fromPercent",
+          "in": [
+            "0"
+          ],
+          "out": "0/1"
+        },
+        {
+          "id": "pct-hundred",
+          "op": "fromPercent",
+          "in": [
+            "100"
+          ],
+          "out": "1/1"
+        },
+        {
+          "id": "pct-over-hundred",
+          "op": "fromPercent",
+          "in": [
+            "150"
+          ],
+          "out": "3/2"
+        },
+        {
+          "id": "pct-negative",
+          "op": "fromPercent",
+          "in": [
+            "-17.5"
+          ],
+          "out": "-7/40"
+        },
+        {
+          "id": "pct-small",
+          "op": "fromPercent",
+          "in": [
+            "0.001"
+          ],
+          "out": "1/100000"
+        },
+        {
+          "id": "pct-trailing-zeros",
+          "op": "fromPercent",
+          "in": [
+            "17.50"
+          ],
+          "note": "Same proportion as pct-fraction. A different captured value would mean the text's representation had leaked into the value.",
+          "out": "7/40"
+        },
+        {
+          "id": "pct-long",
+          "op": "fromPercent",
+          "in": [
+            "12.3456789012345678901234567890"
+          ],
+          "note": "Beyond what float64 or a C# decimal can hold — the case that fails silently if either implementation routes through a binary float.",
+          "out": "12345678901234567890123456789/100000000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "rule": "fromProportion — the value as authored, no scaling",
+      "cases": [
+        {
+          "id": "prop-fraction",
+          "op": "fromProportion",
+          "in": [
+            "0.175"
+          ],
+          "note": "Must equal pct-fraction. fromPercent(17.5) and fromProportion(0.175) are the same proportion — the invariant that keeps the two constructors honest.",
+          "out": "7/40"
+        },
+        {
+          "id": "prop-fifth",
+          "op": "fromProportion",
+          "in": [
+            "0.2"
+          ],
+          "out": "1/5"
+        },
+        {
+          "id": "prop-one",
+          "op": "fromProportion",
+          "in": [
+            "1"
+          ],
+          "out": "1/1"
+        },
+        {
+          "id": "prop-zero",
+          "op": "fromProportion",
+          "in": [
+            "0"
+          ],
+          "out": "0/1"
+        },
+        {
+          "id": "prop-negative",
+          "op": "fromProportion",
+          "in": [
+            "-0.175"
+          ],
+          "out": "-7/40"
+        },
+        {
+          "id": "prop-many-digits",
+          "op": "fromProportion",
+          "in": [
+            "0.3333333333333333333333333333333"
+          ],
+          "note": "A third is not representable in any finite decimal; the point is that the fraction is kept as authored rather than materialised.",
+          "out": "3333333333333333333333333333333/10000000000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "rule": "parse — the canonical wire form, num/den",
+      "cases": [
+        {
+          "id": "parse-simple",
+          "op": "parse",
+          "in": [
+            "7/40"
+          ],
+          "out": "7/40"
+        },
+        {
+          "id": "parse-zero",
+          "op": "parse",
+          "in": [
+            "0/1"
+          ],
+          "out": "0/1"
+        },
+        {
+          "id": "parse-integer",
+          "op": "parse",
+          "in": [
+            "5/1"
+          ],
+          "out": "5/1"
+        },
+        {
+          "id": "parse-negative",
+          "op": "parse",
+          "in": [
+            "-7/40"
+          ],
+          "out": "-7/40"
+        }
+      ]
+    },
+    {
+      "rule": "rejected input — the parser is strict in both directions",
+      "note": "A value must have exactly one encoding, which is what keeps wire equality the same as value equality. These are as much of the contract as the accepted cases, so each must fail in every language.",
+      "cases": [
+        {
+          "id": "rej-not-canonical",
+          "op": "parse",
+          "in": [
+            "14/80"
+          ],
+          "note": "Reducible. Normalising it here would give one value two encodings.",
+          "error": true
+        },
+        {
+          "id": "rej-negative-den",
+          "op": "parse",
+          "in": [
+            "7/-40"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-zero-den",
+          "op": "parse",
+          "in": [
+            "0/0"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-num-leading-zero",
+          "op": "parse",
+          "in": [
+            "07/40"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-no-slash",
+          "op": "parse",
+          "in": [
+            "7"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-empty-canonical",
+          "op": "parse",
+          "in": [
+            ""
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-exponent",
+          "op": "fromPercent",
+          "in": [
+            "1e2"
+          ],
+          "note": "Targets spell exponents differently; written in full it is unambiguous everywhere.",
+          "error": true
+        },
+        {
+          "id": "rej-leading-plus",
+          "op": "fromPercent",
+          "in": [
+            "+5"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-grouping",
+          "op": "fromPercent",
+          "in": [
+            "1,000"
+          ],
+          "note": "Grouping is presentation, and presentation belongs to l10n.",
+          "error": true
+        },
+        {
+          "id": "rej-leading-space",
+          "op": "fromPercent",
+          "in": [
+            " 5"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-trailing-point",
+          "op": "fromPercent",
+          "in": [
+            "5."
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-leading-point",
+          "op": "fromPercent",
+          "in": [
+            ".5"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-leading-zero",
+          "op": "fromPercent",
+          "in": [
+            "017.5"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-double-point",
+          "op": "fromPercent",
+          "in": [
+            "1.2.3"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-empty-decimal",
+          "op": "fromProportion",
+          "in": [
+            ""
+          ],
+          "error": true
+        }
+      ]
+    }
+  ]
+}

@@ -90,11 +90,14 @@ compiling.
   resolver rather than a branch per writer, which is the point: a wrong expression here is
   wrong data in every target at once. TS additionally imports the hand-written types the
   values construct; C# needs nothing, sharing the namespace via `partial`.
-- [ ] **2.1b — `Percentage`, hand-written in C# and TS.** An exact `Rational`:
-  `FromPercent`, `FromProportion`, canonical `num/den` form, equality, strict `Parse` for the
-  canonical form. Not the arithmetic yet. C# takes `decimal` where TS takes a string — each
-  language's own exact literal — and TS must reject a `number` at the type level. First
-  entries in the vector dataset (3.1) land with it.
+- ✓ **2.1b — `Percentage`, hand-written in C# and TS.** An exact `Rational` over big
+  integers: `FromPercent`, `FromProportion`, canonical `num/den`, equality, and a strict
+  `Parse` that rejects a non-canonical encoding so a value has exactly one spelling. Both
+  decimal parsers are **character walks rather than regexes** — two regex engines can differ
+  in dialect at the edges, and this grammar has to mean the same thing in every target, which
+  a loop is by construction. C# additionally takes `decimal`, routed through the string form
+  so there is one parsing implementation rather than two that could drift; TS rejects a
+  `number` in the type *and* at runtime, since JavaScript callers reach it too.
 - [ ] **2.2 — enums.** The first type c5n emits a **body** for rather than instances. Forces
   the member-normalisation question `DESIGN.md` lists: how data's `standard` becomes
   `TaxCategory.Standard` in C#, and what the TS spelling is (`enum` vs a string-literal
@@ -146,15 +149,21 @@ the rational parse rather than money math, so the harness is shaped on an easy c
   **Standing rule:** an implementation is written from the rule, **never from the dataset**.
   That is what keeps captured values audited — an independently-written TS turns a captured
   C# slip red. Generate the TS implementation from the vectors and that check is gone.
-- [ ] **3.2 — a `run-vector` CLI per language.** Deliberately thin: read the dataset,
-  execute each case, report what it got. No assertions and no test framework — the
-  comparison belongs to the driver, so a third party can point the same driver at their own
-  implementation.
-- [ ] **3.3 — the uniform Go driver.** Invokes each language's CLI, compares against
-  expected, reports divergence. This is also the audit tool; there is not a second one.
-- [ ] **3.4 — wire it into CI.** What finally collapses the two target jobs into a real
-  `strategy.matrix`: they share a command at last. Exact toolchain pinning lands in the same
-  pass (see *Rooms*), because from here a runtime-library version can move a result.
+- ✓ **3.2 — a `run-vector` CLI per language.** Thin by design: read the dataset, execute
+  each case, report what it got. No assertions, no test framework, and it ignores any
+  expected values in the file — which is what stops a runner grading its own work. An
+  unknown op exits non-zero rather than reporting a case error, or a reject case would
+  "pass" for entirely the wrong reason.
+- ✓ **3.3 — the uniform Go driver** (`c5n/cmd/conform`). Runs each language's CLI, compares
+  against the dataset, reports every divergence with wanted-versus-got. `-capture <runner>`
+  writes a runner's results back as the expectations and **says what changed** — a capture
+  over an existing value means behaviour moved, which is a decision, not a refresh. A
+  rejection is recorded as a bare `true`, never the message: each language words its own,
+  and pinning the text would make a reworded error a breaking change.
+- ✓ **3.4 — wired into CI** as a `conform` job.
+- [ ] **3.5 — collapse `csharp` and `ts` into a `strategy.matrix`.** They finally share a
+  command. Exact toolchain pinning lands in the same pass (see *Rooms*), because from here a
+  runtime-library version can move a result rather than just a compile.
 
 **Checkpoint:** `Percentage.FromPercent` conformance runs in CI across both languages from
 one dataset — and changing a digit in the C# implementation turns the run red. A parity net

@@ -1,4 +1,4 @@
-import { Currency } from "./currency";
+import { Currency } from "./currency.js";
 
 /**
  * ISO 3166 country identity: alpha-2, alpha-3 (identity), numeric code, official name,

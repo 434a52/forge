@@ -280,13 +280,16 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 
 	var b strings.Builder
 	b.WriteString(tsHeader(schemaSrc, t.Source))
-	// The hand-written types live one dir up from the generated file, by convention.
-	fmt.Fprintf(&b, "import { %s } from \"../%s\";\n", typ.Name, strings.ToLower(typ.Name))
+	// The hand-written types live one dir up from the generated file, by convention. Import
+	// specifiers carry the ".js" extension: TypeScript resolves it back to the ".ts" source,
+	// and it is what Node's ESM loader requires to run the compiled output directly — without
+	// it the package only works inside a bundler.
+	fmt.Fprintf(&b, "import { %s } from \"../%s.js\";\n", typ.Name, strings.ToLower(typ.Name))
 	for _, u := range usedOrder {
-		fmt.Fprintf(&b, "import { %s } from \"../%s\";\n", u, strings.ToLower(u))
+		fmt.Fprintf(&b, "import { %s } from \"../%s.js\";\n", u, strings.ToLower(u))
 	}
 	for _, rt := range refOrder {
-		fmt.Fprintf(&b, "import { %s } from \"./%s.data\";\n", strings.Join(refVals[rt], ", "), strings.ToLower(rt))
+		fmt.Fprintf(&b, "import { %s } from \"./%s.data.js\";\n", strings.Join(refVals[rt], ", "), strings.ToLower(rt))
 	}
 	b.WriteString("\n")
 	b.WriteString(body.String())

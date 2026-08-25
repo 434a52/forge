@@ -9,4 +9,10 @@
     <AssemblyName>F8n</AssemblyName>
   </PropertyGroup>
 
+  <!-- The runner is its own executable project in a subdirectory; without this the library's
+       default glob would compile its source into the library as well. -->
+  <ItemGroup>
+    <Compile Remove="RunVector/**" />
+  </ItemGroup>
+
 </Project>

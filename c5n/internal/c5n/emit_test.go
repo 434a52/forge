@@ -193,7 +193,7 @@ func TestReferenceResolution(t *testing.T) {
 	if want := `new Country("GBR", GBP)`; !strings.Contains(ts, want) {
 		t.Errorf("TS: want %s\ngot:\n%s", want, ts)
 	}
-	if want := `import { GBP } from "./currency.data";`; !strings.Contains(ts, want) {
+	if want := `import { GBP } from "./currency.data.js";`; !strings.Contains(ts, want) {
 		t.Errorf("TS: want import %s\ngot:\n%s", want, ts)
 	}
 }
@@ -240,7 +240,7 @@ func TestNestedCtorUsesTheRecipe(t *testing.T) {
 	}
 	// TS has no partial, so a constructed hand-written type must be imported by name or the
 	// generated module does not compile.
-	if want := `import { Percentage } from "../percentage";`; !strings.Contains(ts, want) {
+	if want := `import { Percentage } from "../percentage.js";`; !strings.Contains(ts, want) {
 		t.Errorf("TS: missing import for the nested type\ngot:\n%s", ts)
 	}
 }
