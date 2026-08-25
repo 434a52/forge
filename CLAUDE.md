@@ -17,7 +17,7 @@ Credit Claude as co-contributor on all git activity:
 ## Structure
 
 - One project per top-level dir (`c5n/`, `f8n/`, …), each **self-contained** (own build + package) so it can `git subtree split` out later.
-- Each project dir carries **`DESIGN.md`** (the *why* — accretes, keeps a change log) and, once it is being built, **`{project}.plan.md`** (the *what next* — phases → steps, `✓` marked in place, retired when the work lands). Named for the project so it stays self-identifying in an editor tab and after a subtree split.
+- Each project dir carries **`DESIGN.md`** (the *why* — accretes, keeps a change log) and, once it is being built, **`PLAN.md`** (the *what next* — phases → steps, `✓` marked in place, retired when the work lands). Both are bare, uppercase, and sit beside each other; the directory already says which project they belong to.
 - One root `llm/` — shared instruction context synced from i10s (`synced/` = pinned + managed; `local/` = yours), referenced via `@llm/index.md`.
 
 ## Architecture (the load-bearing decisions)
