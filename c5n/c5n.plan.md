@@ -71,9 +71,11 @@ f8n's next data file (`data/tax/gb-vat.yaml`, worked through in `DESIGN.md` →
 else. One vertical slice, ordered by dependency; every step ends with both targets
 compiling.
 
-- [ ] **2.0 — settle the two open questions** (`DESIGN.md` → *Open questions*). The rate
-  authoring form blocks 2.1; output-path-per-source blocks 2.4. Decide, record in
-  `DESIGN.md`, then build.
+- ✓ **2.0a — rate authoring form.** Resolved: `Percentage.Parse` accepts a plain decimal as
+  well as the canonical `num/den`. See `DESIGN.md` → *Open questions* for the two spec rules
+  it pins — the stored value is the fraction rather than the percent number, and the decimal
+  parser must not route through a binary float.
+- [ ] **2.0b — output path per source, not per type.** Still open; blocks 2.4, not 2.1.
 - [ ] **2.1 — nested ctor + `Percentage`.** The third value shape: the field's declared type
   is constructible, so the emitter recurses. This is the conformance-critical heart — a
   wrong expression here is wrong data in every target at once, and it is what the golden
