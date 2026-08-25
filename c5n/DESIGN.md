@@ -42,9 +42,9 @@ Types are declared **once**, in their own file(s), separate from data. Not JSON 
 Percentage:                 # external: hand-written runtime primitive
   external: true
   fields: { value: string }   # an exact Rational, canonical "num/den" — see ../f8n/DESIGN.md
-  emit:                       # override — the default ctor won't do (parse, not construct)
-    csharp: "Percentage.Parse({value})"
-    ts:     "Percentage.parse({value})"
+  emit:                       # override — the ctor won't do, and the recipe names the unit
+    csharp: "Percentage.FromPercent({value})"
+    ts:     "Percentage.fromPercent({value})"
 
 Country:                    # external; no emit: → positional-ctor *convention* (ctor args = fields)
   external: true
@@ -64,6 +64,16 @@ TaxRate:                    # external; convention: new TaxRate(jurisdiction, ta
 TaxType:     { kind: enum } # generated — emitted as C# enum / TS union; members drawn from data
 TaxCategory: { kind: enum }
 ```
+
+**A bare number that needs a unit or a scale must be constructed by name.** The positional-ctor convention is safe only where every field is self-describing. Where it is not, the same literal has two readings that differ by a factor — and no check anywhere in the pipeline can tell them apart, because both are valid values of the declared type:
+
+| type | the ambiguity | factor |
+|---|---|---|
+| `Percentage` | proportion (`0.175`) vs percent (`17.5`) | 100 |
+| `Money` | major units (`12.34`) vs minor units (`1234`) | 10^dp, and *currency-dependent* — JPY 1, BHD 1000 |
+| `ExchangeRate` | which way round the rate runs | the inverse |
+
+`f8n` already resolves the third by putting the `(from, to)` pair **in the type**, so the direction cannot be dropped. The rule generalises that: **name the unit at the construction site** — `FromPercent` / `FromProportion`, `FromMajor` / `FromMinor` — and never let a positional ctor take a number whose meaning lives in a comment. It is the same reasoning that leaves `AllocationRule` with no default: a silent interpretation of a caller's number is the failure mode, so the API makes the caller say which they mean. In c5n this lands in one reviewed place — the type's `emit:` recipe — rather than in every data author's head, on every row.
 
 **Construction = convention-by-default + per-type override.** Most types get a positional-ctor convention the writer knows (`new T(f1, f2, …)`) — zero per-type config. Only the awkward ones (factories like `Money.of`, parse-from-string primitives, singleton refs) carry an explicit `emit:` block, and it lives **beside the type** (all of `Percentage` in one place). Recipes are per-target-language.
 
@@ -96,8 +106,8 @@ VatStandard:
   type: EffectiveDated<TaxRate>
   common: { jurisdiction: GBR, taxType: VAT, category: standard }
   rows:
-    - { from: 2011-01-04, rate: 0.20 }
-    - { from: 2010-01-01, rate: 0.175 }
+    - { from: 2011-01-04, rate: 20 }     # as the notice states it; the recipe says what 20 means
+    - { from: 2010-01-01, rate: 17.5 }
 ```
 
 **`common`-hoisting** is a general affordance (not tax-specific): any field constant across a collection lifts to `common:`; each row carries only what varies; c5n merges `common ⊕ row` when constructing the value. Emitted code is identical to writing every field out. It's where much of the "data stays clean" ergonomics lives across all three consumers.
@@ -121,7 +131,7 @@ For each field the emitter resolves, **driven purely by the declared field type*
 
 - **literal** — scalar → per-language literal formatting (`0.20m`, `826`, a `DateOnly(…)`);
 - **reference** — the value matches an enum member or a table row's **key-field value** → emit the reference (`Currency.GBP`, `TaxType.VAT`), not a fresh ctor;
-- **nested ctor** — the field's type is a constructible type → recurse (`new Percentage(0.20m)`).
+- **nested ctor** — the field's type is a constructible type → recurse (`Percentage.FromPercent("20")`).
 
 This resolver is target-independent and **shared core** — it is the one logic-bearing part, and where correctness lives (a wrong ctor is wrong data *everywhere* it's emitted), so it is what the golden vectors must pin hardest.
 
@@ -136,8 +146,8 @@ public partial class Country {
 // TaxRates.g.cs — common merged into each row; reference + nested-ctor + literal all visible
 public static class VatStandard {
     public static readonly EffectiveDated<TaxRate> Series = EffectiveDated.Of(
-        (new DateOnly(2011, 1, 4), new TaxRate(Country.GBR, TaxType.VAT, TaxCategory.Standard, new Percentage(0.20m))),
-        (new DateOnly(2010, 1, 1), new TaxRate(Country.GBR, TaxType.VAT, TaxCategory.Standard, new Percentage(0.175m))));
+        (new DateOnly(2011, 1, 4), new TaxRate(Country.GBR, TaxType.VAT, TaxCategory.Standard, Percentage.FromPercent("20"))),
+        (new DateOnly(2010, 1, 1), new TaxRate(Country.GBR, TaxType.VAT, TaxCategory.Standard, Percentage.FromPercent("17.5"))));
 }
 ```
 
@@ -296,13 +306,15 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - ~~**Vector oracle** — what produces the golden vectors, and how the edges are independently verified.~~ **Resolved 2026-07-03:** a prose **specification** is the oracle (spec → vectors → code); boundary vectors are hand-authored into the spec and checked against the authority, the interior is generated. See **Specification as the oracle**.
 - **Consumer generated-code policy** — checked-in vs generated-on-build is the consumer's call; we document the PR + drift-guard pattern as the recommended shape (it's what f8n's own repo uses).
 - **Generation-model details to firm up** (all bounded, none structural): the exact collection-kind spelling (`list`/`table`/`EffectiveDated`); enum-member normalisation (how data's `standard` maps to `TaxCategory.Standard` — casing/aliasing); and the polymorphic-field discriminator syntax (bites `l10n`'s plain-vs-interpolated leaf, not `f8n`).
-- ~~**Rate authoring form.**~~ **Resolved 2026-08-25:** `Percentage.Parse` accepts a **plain decimal as well as the canonical `num/den`**. Hand-maintained tax data stays legible (`rate: 0.175` rather than `"7/40"`) and nothing is lost: every finite decimal *is* a rational — `0.175 = 175/1000 = 7/40` — so the conversion is exact and the reduced form is canonical. The canonical string remains the **output** form; parse is deliberately wider than serialise, so a round-trip preserves the *value*, not the spelling. Two consequences, both spec rules (see the spec seed, `c5n.plan.md` step 3.1):
-  - **The stored value is the proportion, never the percent number.** `Parse("0.20")` holds the **dimensionless proportion** `1/5` — the operand `Money × p → Money` consumes, so applying it to £1000 yields £200. It is *not* "20%": `%` is a **constructor and a formatter**, never the stored form (`../f8n/DESIGN.md`), so "20%" is one presentation of that proportion and presentation belongs to `l10n`. `"1/5"` and `"0.2"` are therefore the same `Percentage`, and data authors the proportion — `rate: 0.175` for a rate *displayed* as 17.5% — never `17.5`. Nothing in the pipeline can catch that slip: both are valid rationals, and the error is a silent factor of 100. It is what the spec's worked examples exist to pin.
+- ~~**Rate authoring form.**~~ **Resolved 2026-08-25:** **data authors the percent number the source document states — `rate: 17.5` — and the type's `emit:` recipe names the unit: `Percentage.FromPercent({value})`.** The stored value is still the dimensionless proportion `7/40`; `FromPercent` divides by 100 in rational space, which is exact. Nothing is lost and the data reads like the notice it was copied from.
+
+  Rejected on the way: making **`Parse` itself** take a decimal proportion. `Parse` has to accept the canonical `"num/den"` so a value round-trips, which fixes its number-space to the proportion — and then `"0.175"` means 17.5% while `"17.5"` means 1750%, with a data author's most natural input silently wrong by a factor of 100. Also rejected, harder: reading rational form as a proportion and decimal form as a percent, which makes `"1/2"` mean 50% and `"0.5"` mean 0.5%. `Parse` therefore stays the **canonical wire form only**; human authoring goes through the named constructors. Two consequences, both spec rules (see the spec seed, `c5n.plan.md` step 3.1):
+  - **`%` is a constructor, never the stored form** (`../f8n/DESIGN.md`). `Percentage` holds a dimensionless proportion — the operand `Money × p → Money` consumes — and "17.5%" is one *presentation* of it, which belongs to `l10n`. The named constructor is what keeps the two apart at every site where a number enters.
   - **The decimal parser must not route through a binary float.** The obvious TypeScript implementation is `Number(s)` — `float64`, which cannot hold what the data can, and exactly the defect c5n itself carried when data was decoded through `any`. Both targets must parse the digit string into an exact numerator and denominator directly. This is now a **conformance surface**: c5n emits the *authored* text (`Percentage.Parse("0.175")`), so C# and TS must agree precisely on what that string means, and that agreement is what the golden vectors pin.
 - **Output paths are derived from the type, not the source.** A table's output file is named for its element type (`TaxRate.g.cs`), so two data files feeding one type — the natural shape for per-jurisdiction tax data, `gb-vat.yaml` beside `fr-vat.yaml` — resolve to a single path, and the second write wins. The drift-guard catches it, but reports "out of date" rather than "two sources, one file". Either name output per source file, or merge same-type collections into one output; the choice affects the co-existence convention (a C# `partial` merges; a TS module needs re-exporting). Bites at the first multi-file collection — blocks `c5n.plan.md` step 2.4.
 
 ## Change log
-- 2026-08-25: **resolved the rate authoring form** — `Percentage.Parse` accepts a plain decimal alongside the canonical `num/den`, keeping hand-maintained data legible at no cost in exactness, with the canonical string staying the output form (parse wider than serialise; a round-trip preserves the value, not the spelling). Pinned the two rules that decision implies: the stored value is the **dimensionless proportion, never the percent number** (`%` is a constructor and formatter, not the stored form — so `0.175` is the operand, and `17.5` would be wrong by a factor of 100), and the decimal parser **must not route through a binary float** — the obvious `Number(s)` in TypeScript is `float64` and reintroduces the defect c5n itself carried when data was decoded through `any`. Because c5n emits the authored text rather than a normalised form, the parser becomes a conformance surface the golden vectors have to pin.
+- 2026-08-25: **resolved the rate authoring form — named constructors, not a wider `Parse`.** Data authors the percent number the source document states (`rate: 17.5`) and the `emit:` recipe names the unit (`Percentage.FromPercent`); the stored value is still the exact proportion `7/40`, since dividing by 100 in rational space loses nothing. Widening `Parse` to take a decimal proportion was rejected: `Parse` must accept the canonical `"num/den"` to round-trip, which fixes its number-space, so a data author's most natural input would have been silently wrong by 100×. Generalised into a standing rule — **a bare number that needs a unit or a scale must be constructed by name** — with the three instances tabulated (`Percentage` proportion-vs-percent, `Money` major-vs-minor and currency-dependent, `ExchangeRate` direction, which f8n already solves by typing the `(from, to)` pair). Also pinned: the decimal parser **must not route through a binary float**, since the obvious `Number(s)` in TypeScript is `float64` and reintroduces the defect c5n itself carried when data was decoded through `any`; because c5n emits authored text rather than a normalised form, that parser is a conformance surface the golden vectors have to pin.
 - 2026-08-25: **split the sequence out into `c5n.plan.md`** — phases → steps with `✓` marked in place, so this doc stays the *why* and the plan carries the ordering and its checkpoints. **Added CI** (`.github/workflows/ci.yml`): the drift-guard and the per-target compile checks now run on push and PR rather than by hand — one `engine` job (do the sources still produce the committed output?) and one job per target (does the committed output still compile?), with actions pinned by commit SHA. The two target jobs are separate rather than a `strategy.matrix` only because their toolchains share no command yet; the vector runner is what merges them. Also recorded two open questions raised by the next slice — the **rate authoring form**, and **output paths derived from the type rather than the source**, where two data files feeding one type collide.
 - 2026-08-25: **corrected the `Percentage` schema example and pinned recipe semantics.** The example still showed `value: decimal` with a C# `m` suffix written into the recipe — superseded by f8n's 2026-07-17 decision that `Percentage` is an exact **`Rational`**, serialised as the canonical string `"num/den"` precisely so a decimal is never materialised. Updated to `value: string` + a parse recipe. Also pinned the substitution rule that the old example left ambiguous: **`{field}` is the fully emitted argument expression**, so a recipe never re-spells a literal (which is what made `{value}m` look necessary). Implementation notes from the same pass: `emit:` is now wired up (it had been parsed and ignored), and data values are carried as **authored source text** rather than decoded through `any` — the latter routed every fractional value through float64, so a declared decimal reached the target with different digits and compiled clean while being wrong.
 - 2026-08-22: **generated rules carry stable identity.** A generated validator emits a rule identity that resolves identically in every target language, so locally-evaluated and authoritative results can be **reconciled** — one rule recognised as one rule, deduplicated, with the authority's verdict superseding a local one rather than doubling it. Without it, reconciliation falls back to matching rendered message strings, which localisation breaks outright. Identity is generated (never hand-assigned), travels with the problem rather than the message, and pairs with the property's stable key. Small emitter requirement, outsized payoff — and only possible because both sides generate from one declarative source.

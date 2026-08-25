@@ -71,10 +71,11 @@ f8n's next data file (`data/tax/gb-vat.yaml`, worked through in `DESIGN.md` →
 else. One vertical slice, ordered by dependency; every step ends with both targets
 compiling.
 
-- ✓ **2.0a — rate authoring form.** Resolved: `Percentage.Parse` accepts a plain decimal as
-  well as the canonical `num/den`. See `DESIGN.md` → *Open questions* for the two spec rules
-  it pins — the stored value is the dimensionless proportion rather than the percent number,
-  and the decimal parser must not route through a binary float.
+- ✓ **2.0a — rate authoring form.** Resolved: data authors the percent number the source
+  document states (`rate: 17.5`) and the `emit:` recipe names the unit
+  (`Percentage.FromPercent`); `Parse` stays the canonical wire form. See `DESIGN.md` →
+  *Open questions* for what was rejected and why, and for the standing rule it generalises
+  to — a bare number needing a unit or scale is constructed **by name**.
 - [ ] **2.0b — output path per source, not per type.** Still open; blocks 2.4, not 2.1.
 - [ ] **2.1 — nested ctor + `Percentage`.** The third value shape: the field's declared type
   is constructible, so the emitter recurses. This is the conformance-critical heart — a
