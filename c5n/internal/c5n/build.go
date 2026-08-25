@@ -47,6 +47,9 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := Validate(schema, tables); err != nil {
+		return nil, nil, err
+	}
 	schemaSrc := strings.Join(schemaPaths, " + ")
 
 	// Deterministic target order so output (and logs) don't depend on map iteration.
@@ -58,6 +61,7 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 
 	var files []GenFile
 	for _, t := range tables {
+		// Validate has already rejected an unknown type; the check keeps the lookup total.
 		typ, ok := schema[t.ElemType]
 		if !ok {
 			return nil, nil, fmt.Errorf("%s: unknown type %s", t.Source, t.ElemType)

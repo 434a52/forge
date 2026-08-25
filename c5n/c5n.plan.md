@@ -40,10 +40,15 @@ are each a Go test plus an error path; no emitter change.
   surface — with `.github/dependabot.yml` supplying the update path that pinning otherwise
   removes. The two target jobs become a real `strategy.matrix` once the vector runner gives
   them a shared command.
-- [ ] **1.2 — reject undeclared fields in a data row.** `rowArgs` reads only the fields the
-  schema declares, so a misspelled or stale field in a data file is dropped in silence and
-  the output still compiles. Same class as the `float64` bug — invisible on the page, wrong
-  in the artefact. Strict-reject, naming the file and row.
+- ✓ **1.2 — reject undeclared fields in a data row.** The writers walk only the *declared*
+  fields, so a field the schema has no place for — added by an author expecting it to
+  appear, or left behind by a rename — was dropped in complete silence, with the output
+  regenerating and compiling without it. Same class as the `float64` bug: invisible on the
+  page, wrong in the artefact. A *misspelled* key was already caught, but by the absence it
+  left ("field capitalTz: missing from row"), which names the field spelled correctly and
+  not the one that is wrong. Validation now runs once over schema + data before any writer
+  sees them, reports every problem in one pass, and names the file, the row by its key, the
+  offending field, and what is declared.
 - [ ] **1.3 — resolve references inside c5n.** A `defaultCurrency: XXX` with no matching row
   is emitted as `Currency.XXX` and caught only by the target compiler — that is, only if
   someone compiles. c5n holds the table in memory; it should fail with the source location.
