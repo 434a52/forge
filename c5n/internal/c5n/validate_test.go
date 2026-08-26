@@ -221,3 +221,50 @@ func TestRowWithoutItsKeyIsRejected(t *testing.T) {
 		t.Errorf("want a missing-identity error, got: %v", err)
 	}
 }
+
+// levySchema is a table whose row carries an enum-typed field — the reference shape 2.2
+// adds alongside a reference to a table row.
+func levySchema() Schema {
+	return Schema{
+		"TaxType": &Type{Name: "TaxType", Kind: KindEnum, Members: []string{"VAT", "GST"}},
+		"Levy": &Type{
+			Name: "Levy", External: true, Key: "code",
+			Fields: []Field{{Name: "code", Type: "string"}, {Name: "taxType", Type: "TaxType"}},
+		},
+	}
+}
+
+// The failure this exists for is the one the alternative design could not have caught:
+// with members collected from data, `Vat` would have *created* a member rather than failed
+// — and since an enum serialises as text, the typo would have become a wire token.
+func TestUndeclaredEnumMemberIsRejected(t *testing.T) {
+	tbl := mustTable(t, "type: table<Levy>\nitems:\n  - { code: STD, taxType: Vat }\n")
+	tbl.Source = "data/levies.yaml"
+
+	err := Validate(levySchema(), []*Table{tbl})
+	if err == nil {
+		t.Fatal("want an error for an undeclared enum member, got nil")
+	}
+	for _, want := range []string{
+		"data/levies.yaml", // which file
+		"row 1 (STD)",      // which row, by the identity in it
+		`"taxType"`,        // which field
+		`"Vat"`,            // the value that is wrong, quoted so the casing is visible
+		"VAT, GST",         // what is declared — an enum is short enough to list in full
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error is missing %q:\n%s", want, err)
+		}
+	}
+}
+
+// A declared member passes, so the check above is testing the member set and not merely
+// erroring on every enum-typed field.
+func TestDeclaredEnumMemberIsAccepted(t *testing.T) {
+	tbl := mustTable(t, "type: table<Levy>\nitems:\n  - { code: STD, taxType: VAT }\n")
+	tbl.Source = "data/levies.yaml"
+
+	if err := Validate(levySchema(), []*Table{tbl}); err != nil {
+		t.Fatalf("want a clean run, got: %v", err)
+	}
+}

@@ -19,3 +19,20 @@ Country:
   key: alpha3                  # identity → names Country.GBR
   fields: { alpha2: string, alpha3: string, numeric: int, name: string, callingCode: int,
             defaultCurrency: Currency, capitalTz: string }
+
+# Enums are generated: c5n emits the type *body* in each target, and their members are
+# declared here rather than collected from data. A data value therefore *selects* a member
+# and can never create one — which matters more than it looks, because an enum serialises
+# as text (see f8n/DESIGN.md -> Wire format): the member name is the token on the wire, so a
+# typo that minted a member would mint a wire token with it.
+#
+# Member names are emitted verbatim in every target — no casing is applied anywhere, which
+# is the only rule under which VAT survives as VAT rather than Vat.
+
+TaxType:
+  kind: enum
+  members: [VAT]               # only what GB VAT needs; add a member when a jurisdiction does
+
+TaxCategory:
+  kind: enum
+  members: [Standard, Reduced, ZeroRated]   # the three GB VAT rate bands

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,10 +17,31 @@ type Schema map[string]*Type
 // identity field — it becomes the constant name and the reference target.
 type Type struct {
 	Name     string
+	Kind     string // "" for a record/external type; KindEnum for a generated enum
 	External bool
 	Key      string
 	Fields   []Field           // in declaration order — this is the ctor arg order
+	Members  []string          // enum members, in declaration order
 	Emit     map[string]string // target -> construction recipe; nil = positional-ctor convention
+}
+
+// KindEnum is the one declared kind so far. A kind is how a type says it is something
+// other than a plain record, and it is what makes c5n emit a type *body* rather than
+// instances of a hand-written one.
+const KindEnum = "enum"
+
+// IsEnum reports whether this type is a generated enum.
+func (t *Type) IsEnum() bool { return t.Kind == KindEnum }
+
+// DeclaresMember reports whether name is one of this enum's declared members. A linear
+// scan: an enum's members are a handful of domain terms, not a table.
+func (t *Type) DeclaresMember(name string) bool {
+	for _, member := range t.Members {
+		if member == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Field is one declared field: a name and a declared type. The type is a scalar
@@ -71,6 +93,9 @@ func parseSchemaDoc(doc *yaml.Node, out Schema) error {
 		if err := parseTypeDecl(root.Content[i+1], t); err != nil {
 			return fmt.Errorf("type %s: %w", t.Name, err)
 		}
+		if err := checkTypeDecl(t); err != nil {
+			return fmt.Errorf("type %s: %w", t.Name, err)
+		}
 		out[t.Name] = t
 	}
 	return nil
@@ -100,7 +125,13 @@ func parseTypeDecl(decl *yaml.Node, t *Type) error {
 			}
 			t.Emit = recipes
 		case "kind":
-			// enum kinds are a deferred room — parsed-tolerant, not yet used.
+			t.Kind = val.Value
+		case "members":
+			members, err := parseMembers(val)
+			if err != nil {
+				return err
+			}
+			t.Members = members
 		default:
 			return fmt.Errorf("unknown declaration key %q", key)
 		}
@@ -136,4 +167,73 @@ func parseFields(node *yaml.Node) ([]Field, error) {
 		fields = append(fields, Field{Name: node.Content[i].Value, Type: node.Content[i+1].Value})
 	}
 	return fields, nil
+}
+
+// memberName is the shape an enum member has to have to be a legal identifier in every
+// target: a letter or underscore, then letters, digits or underscores.
+//
+// Shape only — a member that happens to be a *keyword* in one target is left to that
+// target's compiler. It is an unlikely collision (members are domain vocabulary), and it
+// fails loudly in a gate that already runs, pointing back at the schema. What this does
+// catch is the mistake an author actually makes: `zero-rated`, `2ndTier`, `zero rated`.
+var memberName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// parseMembers reads an enum's member list, keeping declaration order — which is the
+// emitted order, and the order a reader compares against the schema.
+func parseMembers(node *yaml.Node) ([]string, error) {
+	if node.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("members must be a list of names")
+	}
+	members := make([]string, 0, len(node.Content))
+	for _, m := range node.Content {
+		if m.Kind != yaml.ScalarNode {
+			return nil, fmt.Errorf("members must be a list of names")
+		}
+		members = append(members, m.Value)
+	}
+	return members, nil
+}
+
+// checkTypeDecl rejects a declaration that is internally contradictory, at the point of
+// declaration rather than at the point some writer trips over it.
+//
+// An enum is declared, never inferred from data. A value in a data file therefore
+// *selects* a member and can never create one — which is the same guarantee a reference
+// to a table row gets, and it matters more here: an enum member's name is what crosses
+// the wire, so a typo that minted a member would mint a wire token with it.
+func checkTypeDecl(t *Type) error {
+	if t.Kind != "" && t.Kind != KindEnum {
+		return fmt.Errorf("unknown kind %q (the only kind is %q)", t.Kind, KindEnum)
+	}
+	if !t.IsEnum() {
+		if len(t.Members) > 0 {
+			return fmt.Errorf("members are only declared on `kind: enum`")
+		}
+		return nil
+	}
+
+	switch {
+	case t.External:
+		return fmt.Errorf("an enum cannot be external — c5n emits the type body")
+	case len(t.Fields) > 0:
+		return fmt.Errorf("an enum has members, not fields")
+	case t.Key != "":
+		return fmt.Errorf("an enum has no key — a member's name is its identity")
+	case len(t.Emit) > 0:
+		return fmt.Errorf("an enum needs no emit: recipe — a member is referenced, never constructed")
+	case len(t.Members) == 0:
+		return fmt.Errorf("an enum must declare at least one member")
+	}
+
+	seen := make(map[string]bool, len(t.Members))
+	for _, m := range t.Members {
+		if !memberName.MatchString(m) {
+			return fmt.Errorf("member %q is not a legal identifier in every target", m)
+		}
+		if seen[m] {
+			return fmt.Errorf("member %q is declared twice", m)
+		}
+		seen[m] = true
+	}
+	return nil
 }

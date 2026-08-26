@@ -12,6 +12,18 @@ import (
 // behaviour that depends on the order the pieces run in, which a unit test cannot see.
 func fixture(t *testing.T, dataFiles map[string]string) string {
 	t.Helper()
+	return fixtureWithSchema(t, currencySchemaSrc, dataFiles)
+}
+
+const currencySchemaSrc = "Currency:\n" +
+	"  external: true\n" +
+	"  key: code\n" +
+	"  fields: { code: string, numeric: int }\n"
+
+// fixtureWithSchema is the same project, with the schema written by the caller — for the
+// cases where what is under test is a declaration rather than a data row.
+func fixtureWithSchema(t *testing.T, schemaSrc string, dataFiles map[string]string) string {
+	t.Helper()
 	dir := t.TempDir()
 	files := map[string]string{
 		"c5n.yaml": "targets:\n" +
@@ -20,10 +32,7 @@ func fixture(t *testing.T, dataFiles map[string]string) string {
 			"sources:\n" +
 			"  schema: schema/*.yaml\n" +
 			"  data:   data/**/*.yaml\n",
-		"schema/types.yaml": "Currency:\n" +
-			"  external: true\n" +
-			"  key: code\n" +
-			"  fields: { code: string, numeric: int }\n",
+		"schema/types.yaml": schemaSrc,
 	}
 	for name, content := range dataFiles {
 		files["data/"+name] = content
@@ -135,4 +144,44 @@ func paths(files []GenFile) []string {
 		out[i] = f.Rel
 	}
 	return out
+}
+
+// An enum is emitted from the schema alone. Its members are declared, so it is part of the
+// published API whether or not a data row has referenced it yet — which is the structural
+// point of 2.2: every other unit so far is derived from a data file, and this one is not.
+//
+// It is also what the alternative design would have made impossible. Had members been
+// collected from data, an enum nothing referenced could not be emitted at all, so the
+// public API would have depended on data coverage.
+func TestEnumEmitsWithoutAnyData(t *testing.T) {
+	dir := fixtureWithSchema(t,
+		currencySchemaSrc+"TaxType:\n  kind: enum\n  members: [VAT, GST]\n",
+		map[string]string{
+			"currencies.yaml": "type: table<Currency>\nitems:\n  - { code: GBP, numeric: 826 }\n",
+		})
+
+	files, _, err := generate(dir)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	byRel := map[string]GenFile{}
+	for _, f := range files {
+		byRel[f.Rel] = f
+	}
+	// Named for what it declares, like every other unit.
+	for _, rel := range []string{
+		filepath.Join("gen", "cs", "TaxType.g.cs"),
+		filepath.Join("gen", "ts", "taxtype.data.ts"),
+	} {
+		if _, ok := byRel[rel]; !ok {
+			t.Fatalf("want %s, got %v", rel, paths(files))
+		}
+	}
+
+	// The header names the schema it came from and no data file, because there is none.
+	cs := byRel[filepath.Join("gen", "cs", "TaxType.g.cs")].Content
+	if !strings.Contains(cs, "schema/types.yaml") || strings.Contains(cs, "data/") {
+		t.Errorf("header should name the schema and no data file:\n%s", cs)
+	}
 }

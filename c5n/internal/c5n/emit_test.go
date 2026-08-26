@@ -292,3 +292,80 @@ func TestSelfNestingTypeIsRejected(t *testing.T) {
 		t.Errorf("want a self-nesting message, got: %v", err)
 	}
 }
+
+// taxSchema is an enum plus a table type with a field declared as that enum — the two
+// halves of 2.2: emitting a type body, and referencing one of its members from data.
+func taxSchema() Schema {
+	return Schema{
+		"TaxType": &Type{Name: "TaxType", Kind: KindEnum, Members: []string{"VAT", "GST"}},
+		"Levy": &Type{
+			Name: "Levy", External: true, Key: "code",
+			Fields: []Field{{Name: "code", Type: "string"}, {Name: "taxType", Type: "TaxType"}},
+		},
+	}
+}
+
+// Member names are emitted exactly as declared, in both targets and in every position.
+// f8n serialises an enum as text, so the member name is the token that crosses the wire —
+// a generator that applied casing would be rewriting a published contract, and it would
+// turn VAT into Vat on the way.
+func TestEnumMembersAreEmittedVerbatim(t *testing.T) {
+	typ := taxSchema()["TaxType"]
+
+	cs := emitEnumCSharp(typ, Target{Namespace: "X"}, "s.yaml")
+	for _, want := range []string{"public enum TaxType", "    VAT,", "    GST,"} {
+		if !strings.Contains(cs, want) {
+			t.Errorf("C#: want %q\ngot:\n%s", want, cs)
+		}
+	}
+
+	ts := emitEnumTS(typ, "s.yaml")
+	for _, want := range []string{
+		"export const TaxType = {",
+		`  VAT: "VAT",`,
+		`  GST: "GST",`,
+		"} as const;",
+		"export type TaxType = (typeof TaxType)[keyof typeof TaxType];",
+	} {
+		if !strings.Contains(ts, want) {
+			t.Errorf("TS: want %q\ngot:\n%s", want, ts)
+		}
+	}
+
+	// Not a TS `enum`: it is number-backed, so the runtime value would no longer be the
+	// serialised token, and it is not erasable syntax.
+	if strings.Contains(ts, "enum ") {
+		t.Errorf("TS emitted an enum declaration:\n%s", ts)
+	}
+}
+
+// The reference reads *identically* in both targets — the reason for the const-object
+// spelling over a bare string union. One shared resolver produces one expression, so there
+// is no per-target reference spelling that could drift.
+func TestEnumReferenceIsIdenticalInBothTargets(t *testing.T) {
+	tbl := mustTable(t, "type: table<Levy>\nitems:\n  - { code: STD, taxType: VAT }\n")
+	schema := taxSchema()
+
+	cs, err := emitCSharp(tbl, schema["Levy"], schema, Target{Namespace: "X"}, "s.yaml")
+	if err != nil {
+		t.Fatalf("emitCSharp: %v", err)
+	}
+	ts, err := emitTS(tbl, schema["Levy"], schema, "s.yaml")
+	if err != nil {
+		t.Fatalf("emitTS: %v", err)
+	}
+
+	const want = `new Levy("STD", TaxType.VAT)`
+	if !strings.Contains(cs, want) {
+		t.Errorf("C#: want %s\ngot:\n%s", want, cs)
+	}
+	if !strings.Contains(ts, want) {
+		t.Errorf("TS: want %s\ngot:\n%s", want, ts)
+	}
+
+	// TS imports what it names, and for an enum that is the const object once — not one
+	// import per member, which is what a table constant gets.
+	if w := `import { TaxType } from "./taxtype.data.js";`; !strings.Contains(ts, w) {
+		t.Errorf("TS: want %s\ngot:\n%s", w, ts)
+	}
+}

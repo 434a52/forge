@@ -61,8 +61,8 @@ TaxRate:                    # external; convention: new TaxRate(jurisdiction, ta
   external: true
   fields: { jurisdiction: Country, taxType: TaxType, category: TaxCategory, rate: Percentage }
 
-TaxType:     { kind: enum } # generated — emitted as C# enum / TS union; members drawn from data
-TaxCategory: { kind: enum }
+TaxType:     { kind: enum, members: [VAT] }   # generated — c5n emits the type body
+TaxCategory: { kind: enum, members: [Standard, Reduced, ZeroRated] }
 ```
 
 **A bare number that needs a unit or a scale must be constructed by name.** The positional-ctor convention is safe only where every field is self-describing. Where it is not, the same literal has two readings that differ by a factor — and no check anywhere in the pipeline can tell them apart, because both are valid values of the declared type:
@@ -80,6 +80,48 @@ TaxCategory: { kind: enum }
 **A recipe chooses the shape of the call, not the spelling of the literals.** `{field}` substitutes the **fully emitted argument expression** — quoted strings, target-suffixed decimals, resolved references — exactly what the convention would have passed positionally. So a recipe supplies the factory name, the argument order, any wrapping; it never re-renders a value. (Literal decoration is the value-emitter's job and is already per-target: a `decimal` carries C#'s `m` suffix without any recipe asking for it.) Cost of "add Swift" = a new writer **+ a `swift:` line on the few special types**, not every type.
 
 **Identity = the `key:` field (`table<T>`).** A `table<T>` emits one named constant per row; `key:` names which declared field is the identity — it becomes the **constant's name** (`Country.GBR`, from `alpha3`) and the **reference target** (a `defaultCurrency: GBP` elsewhere resolves to `Currency.GBP` by matching Currency's `code`). The id is therefore an ordinary field in the ctor like any other — **no key-prepend magic** — and data is authored as a plain **list** of rows (the id appears once). *(A map authoring form — key implicit, id not a stored field — stays available for identities that aren't domain fields, e.g. l10n's namespace names; f8n uses the explicit `key:` + list form.)* Validation: the `key:` field must be **unique** across the table (the uniqueness the map form gave structurally).
+
+### Enums — members are declared, and a member name is a wire token
+An enum's members are listed in the schema, so a data value **selects** a member and can
+never create one; a value naming an undeclared member is a validation error, exactly the
+guarantee a reference to a table row gets. Drawing members from the data instead — the
+earlier sketch — was rejected on two counts. It makes a typo **mint a member** rather than
+fail, and since an enum serialises as text (`../f8n/DESIGN.md` → *Enums travel as their
+member name*), that typo mints a **wire token** — the published-contract failure the
+reference check exists to prevent. And it makes the emitted API depend on data coverage: an
+enum nothing referenced yet could not be emitted at all, so a type would appear and
+disappear as data was added. Declared members make an enum the first unit c5n emits from the
+**schema alone**.
+
+The same fact **dissolves the member-normalisation question** rather than answering it:
+**no casing is applied anywhere.** The name in the schema is the name in C#, the name in TS,
+and the token on the wire — one spelling in three places. Any automatic PascalCase would be
+rewriting a published contract, and it would turn `VAT` into `Vat`. What c5n does check is
+*shape*: a member must be a legal identifier in every target, which catches the mistake an
+author actually makes (`zero-rated` where they meant `ZeroRated`). A member that happens to
+be a **keyword** in one target is left to that target's compiler — an unlikely collision in
+domain vocabulary, failing loudly in a gate that already runs.
+
+**TS spelling: a const object plus a union of its values — not a TS `enum`.**
+
+```ts
+export const TaxCategory = { Standard: "Standard", Reduced: "Reduced" } as const;
+export type TaxCategory = (typeof TaxCategory)[keyof typeof TaxCategory];
+```
+
+`TaxCategory.Standard` then reads **identically in both targets**, so the shared
+value-emitter has one reference spelling rather than one per language — which matters
+because consumers use these types in both. It also makes the two agree on the wire *by
+construction*: the TS runtime value **is** the token C# serialises for the same member, with
+no converter for anyone to keep in sync. A TS `enum` gives neither — it is number-backed, so
+the runtime value stops being the token, and it is not erasable syntax, so type-stripping
+runtimes reject it. A bare string union was rejected too: with no value to reference, the
+emitted expression would have to differ per target, which is the divergence the shared
+resolver exists to remove.
+
+One asymmetry it leaves, deliberately: the TS union accepts a raw `"Standard"` off the wire
+directly, where C# needs a parse. That is deserialisation being cheaper on one side, not the
+contract differing.
 
 ### Data — positionally typed, `common`-hoisted
 Data files stay clean: a collection binds to a schema type **once** (a top-level `type:`), and every nested field's type is looked up from the schema recursively. **No per-value type tags** — position carries the type. (The sole exception: a genuinely polymorphic field, whose declared type is a union — only there does a value carry a discriminator. Rare; zero cost when absent.)
@@ -312,7 +354,8 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - ~~**Own repo/project?**~~ **Resolved 2026-07-06:** `c5n` is a **standalone project/package** (its own dir, own identity — not an f8n component) that **lives in the monorepo** alongside f8n/l10n/doppel + the consumer libs. Standalone ≠ separate repo: co-located so one PR proves the whole `spec→vectors→code→parity` chain, but published as its own artifact. (Repo layout resolved at the roadmap level: monorepo.)
 - ~~**Vector oracle** — what produces the golden vectors, and how the edges are independently verified.~~ **Resolved 2026-07-03, revised 2026-08-25:** the **dataset itself is the artifact**, with each non-obvious vector carrying its rationale and authority citation beside the numbers; edges are hand-derived and authority-checked, the interior is generated from them. The original resolution routed this through a separate prose specification — cut, because it duplicated the vectors for the many rules whose expected value is self-evident, and separated the reasoning from the numbers for the few where it is not. See **The vector dataset is the artifact**.
 - **Consumer generated-code policy** — checked-in vs generated-on-build is the consumer's call; we document the PR + drift-guard pattern as the recommended shape (it's what f8n's own repo uses).
-- **Generation-model details to firm up** (all bounded, none structural): the exact collection-kind spelling (`list`/`table`/`EffectiveDated`); enum-member normalisation (how data's `standard` maps to `TaxCategory.Standard` — casing/aliasing); and the polymorphic-field discriminator syntax (bites `l10n`'s plain-vs-interpolated leaf, not `f8n`).
+- **Generation-model details to firm up** (all bounded, none structural): the exact collection-kind spelling (`list`/`table`/`EffectiveDated`); and the polymorphic-field discriminator syntax (bites `l10n`'s plain-vs-interpolated leaf, not `f8n`).
+- ~~**Enum-member normalisation** — how data's `standard` maps to `TaxCategory.Standard` (casing/aliasing).~~ **Resolved 2026-08-26: there is no normalisation.** Members are declared in the schema, and the declared name is emitted verbatim in every target. The question only existed while members were to be drawn from data; once an enum serialises as **text**, the member name is a wire token, and a generator applying casing to it is a generator rewriting a published contract (it also turns `VAT` into `Vat`). c5n validates a member's *shape* — a legal identifier in every target — and nothing else. See **Enums**.
 - ~~**Rate authoring form.**~~ **Resolved 2026-08-25:** **data authors the percent number the source document states — `rate: 17.5` — and the type's `emit:` recipe names the unit: `Percentage.FromPercent({value})`.** The stored value is still the dimensionless proportion `7/40`; `FromPercent` divides by 100 in rational space, which is exact. Nothing is lost and the data reads like the notice it was copied from.
 
   Rejected on the way: making **`Parse` itself** take a decimal proportion. `Parse` has to accept the canonical `"num/den"` so a value round-trips, which fixes its number-space to the proportion — and then `"0.175"` means 17.5% while `"17.5"` means 1750%, with a data author's most natural input silently wrong by a factor of 100. Also rejected, harder: reading rational form as a proportion and decimal form as a percent, which makes `"1/2"` mean 50% and `"0.5"` mean 0.5%. `Parse` therefore stays the **canonical wire form only**; human authoring goes through the named constructors. Two consequences, both spec rules (see the spec seed, `PLAN.md` step 3.1):
@@ -321,6 +364,7 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - ~~**Output paths are derived from the type, not the source.**~~ **Resolved 2026-08-25: output is named for what it *declares* — the emitted unit — and tables are grouped accordingly.** A `table<T>` emits **one unit per type**, however many data files feed it: splitting reference data across files (per region, per source, per reviewer) is an authoring convenience, and the output does not inherit that shape. `EffectiveDated` will emit **one unit per named series**, since the series is what it declares. *Rejected: naming output after the source file* — it would put `partial class TaxRate` in `GbVat.g.cs` and three unrelated series in a file named after none of them, and it requires deriving a legal identifier from an arbitrary path (hyphens, digits, casing, non-ASCII) identically in every target. Naming by declaration keeps the file name matching the type it declares, gives TS the granularity tree-shaking wants, and turns a clash into a **symbol** collision — a real error with a real message — rather than a path clash nobody can act on. The former behaviour lost data silently: two files, one path, second write wins, and `c5n check` then failed straight after a clean build advising a rebuild that could not help.
 
 ## Change log
+- 2026-08-26: **enums — members are declared, not drawn from data, and no casing is applied anywhere.** Revises the earlier sketch (`kind: enum`, "members drawn from data"), which Phase 1's own reasoning had already superseded: collected members make a typo **create** a member rather than fail, and since an enum serialises as text the typo mints a **wire token** — the failure the reference check exists to prevent. Declared members also make an enum the first unit emitted from the **schema alone**, where every prior unit derived from a data file; under the rejected design an enum nothing referenced could not have been emitted at all, so the public API would have depended on data coverage. That fact **dissolves the member-normalisation open question** instead of answering it — the schema name is the C# name, the TS name and the wire token, one spelling in three places, which is also the only rule under which `VAT` survives as `VAT`. c5n checks a member's *shape* (a legal identifier in every target, catching `zero-rated`) and leaves target keywords to the target compiler. **TS spelling: a const object plus a union of its values, not a TS `enum`** — so `TaxCategory.Standard` reads identically in both targets and the TS runtime value *is* the token C# serialises, with no converter to keep in sync; a TS `enum` is number-backed and not erasable syntax, and a bare string union would have forced a per-target reference spelling. Also pinned in `../f8n/DESIGN.md` → *Enums travel as their member name* (C# must be configured to write strings, not the serialiser's numeric default).
 - 2026-08-25: **cut the separate specification; the vector dataset is the artifact, and the runner moves onto the critical path.** The previous design made a prose spec the oracle, with vectors derived from it — sound reasoning, but it was carrying weight only because the runner that should carry it had been deferred, and it duplicated the numbers for every rule whose expected value is self-evident. Now: one language-neutral dataset plus a thin runner per language, with **rationale and authority citation recorded beside each non-obvious vector**, where they cannot drift from the value they explain. What survives unchanged is the caveat, which was never about specs: **conformance is not correctness** — green proves every language agrees with the dataset, not that the dataset is right — so correctness still costs one human pass per non-obvious rule against the authority. The clean-session cross-check is kept as a technique for auditing how precisely a rule is stated, rather than as a pipeline stage. **Accepted debt retired:** the parity net now exists while the money math is written, and the first vectors are deliberately the rational parse rather than money, so the harness is shaped on an easy case.
 - 2026-08-25: **output is named for what it declares.** Resolves the output-path question: a `table<T>` emits **one unit per type**, merging every data file that feeds it, and `EffectiveDated` will emit one unit per named series. Splitting data across files is an authoring convenience the output should not inherit. Naming output after the *source file* was rejected — it puts `partial class TaxRate` in `GbVat.g.cs`, puts several unrelated series in a file named after none of them, and requires deriving a legal identifier from an arbitrary path identically in every target. The prior behaviour lost data silently (two files, one path, last write wins) and left `c5n check` failing immediately after a clean build with advice that could not help; a duplicate output path is now an error.
 - 2026-08-25: **resolved the rate authoring form — named constructors, not a wider `Parse`.** Data authors the percent number the source document states (`rate: 17.5`) and the `emit:` recipe names the unit (`Percentage.FromPercent`); the stored value is still the exact proportion `7/40`, since dividing by 100 in rational space loses nothing. Widening `Parse` to take a decimal proportion was rejected: `Parse` must accept the canonical `"num/den"` to round-trip, which fixes its number-space, so a data author's most natural input would have been silently wrong by 100×. Generalised into a standing rule — **a bare number that needs a unit or a scale must be constructed by name** — with the three instances tabulated (`Percentage` proportion-vs-percent, `Money` major-vs-minor and currency-dependent, `ExchangeRate` direction, which f8n already solves by typing the `(from, to)` pair). Also pinned: the decimal parser **must not route through a binary float**, since the obvious `Number(s)` in TypeScript is `float64` and reintroduces the defect c5n itself carried when data was decoded through `any`; because c5n emits authored text rather than a normalised form, that parser is a conformance surface the golden vectors have to pin.

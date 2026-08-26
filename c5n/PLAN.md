@@ -6,7 +6,8 @@ step. Mark `✓` in place as steps land.
 
 **Where it stands:** `build` and `check` work end to end for `table<T>`, and f8n's
 Currency/Country slice is generated, committed, and green in all four gates. The engine
-emits **two of the three value shapes** and **one of the four collection kinds**.
+emits **all three value shapes** and **one of the four collection kinds**, and it now emits
+a type **body** (enums, from the schema alone) as well as instances of hand-written types.
 
 ## Phase 0 — bootstrap ✓
 
@@ -98,10 +99,19 @@ compiling.
   a loop is by construction. C# additionally takes `decimal`, routed through the string form
   so there is one parsing implementation rather than two that could drift; TS rejects a
   `number` in the type *and* at runtime, since JavaScript callers reach it too.
-- [ ] **2.2 — enums.** The first type c5n emits a **body** for rather than instances. Forces
-  the member-normalisation question `DESIGN.md` lists: how data's `standard` becomes
-  `TaxCategory.Standard` in C#, and what the TS spelling is (`enum` vs a string-literal
-  union).
+- ✓ **2.2 — enums.** The first type c5n emits a **body** for rather than instances, and the
+  first unit emitted from the **schema alone** — every unit before this derived from a data
+  file, so `generate` gained a second emission pass. **Members are declared, not drawn from
+  data:** a value selects a member and can never create one, which matters because an enum
+  serialises as text, so a minted member is a minted wire token. That also **dissolves** the
+  member-normalisation question rather than answering it — the declared name is emitted
+  verbatim in both targets, the only rule under which `VAT` survives as `VAT`; c5n checks a
+  member's *shape* (a legal identifier everywhere, catching `zero-rated`) and leaves target
+  keywords to the target compiler. **TS is a const object plus a union of its values**, not a
+  TS `enum`: `TaxCategory.Standard` then reads identically in both targets, so the shared
+  resolver keeps one reference spelling, and the TS runtime value *is* the token C#
+  serialises. Landed in f8n as `TaxType` and `TaxCategory`, generated with no data file
+  referencing them yet — which is the emission path being exercised, not a placeholder.
 - [ ] **2.3 — `common:`-hoisting.** Merge `common ⊕ row` at the data layer; emitted output is
   identical to writing every field out. A reader change with no emitter change — third
   because 2.1 and 2.2 settle what a row is.
@@ -208,6 +218,16 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   it builds.
 
 ## Change log
+- 2026-08-26: **2.2 done — enums, with members declared rather than drawn from data.** The
+  structural half is that an enum is the first unit generated from the **schema alone**, so
+  `generate` now runs a schema pass before the data pass and the output-path rule moved to
+  one home shared by both. The design half is recorded in `DESIGN.md`: collected members
+  would let a typo mint a member — and, since an enum serialises as text, a wire token with
+  it — and would make the emitted API depend on data coverage. Declaring them **dissolves**
+  the member-normalisation open question, since the declared name is the name in C#, in TS
+  and on the wire. TS emits a const object plus a union of its values rather than a TS
+  `enum`, so a reference reads identically in both targets. f8n gained `TaxType` and
+  `TaxCategory`; all four gates green.
 - 2026-08-25: **Phase 3 is the vector dataset and its runners, not a prose spec** — and it
   runs alongside Phase 2 rather than after it. The separate specification is cut (see
   `DESIGN.md`): it was carrying weight only because the runner had been deferred, and it

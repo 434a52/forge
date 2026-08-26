@@ -132,6 +132,20 @@ dp > 0:   -?(0|[1-9][0-9]*)\.[0-9]{dp}     # exactly dp digits — never fewer, 
 ### Reference types travel as their key
 A `Country`, `Currency`, or any other keyed table row is sent as its identity — `"GBP"`, `"GBR"` — never as an inlined record. `PhoneNumber` already does this (`{ number, country: alpha-3 }`), and it is what c5n emits in generated code, so one rule serves both.
 
+### Enums travel as their member name
+An enum is serialised as **text** — `"VAT"`, `"Standard"` — never as an ordinal. A number on
+the wire would mean the member list's *order* were part of the contract, so inserting a
+member would silently move every value after it; the name is stable under any reordering,
+and it is readable in the place a wire body actually gets read. C# must therefore be
+configured to write enums as strings rather than take the serialiser's numeric default; TS
+gets it for free, since a generated enum's runtime value **is** its name (see
+`../c5n/DESIGN.md` → *Enums*).
+
+The consequence lands upstream, in `c5n`: **a member name is a published token**, so no
+casing is applied to it anywhere between the schema and the wire, and enum members are
+*declared* rather than collected from data — a typo that minted a member would mint a wire
+token with it.
+
 ### Scale travels only when the type cannot supply it
 `Money` never carries its scale — the currency has it. That is the general rule rather than a special case: **a payload carries only what its type cannot already tell you.**
 
@@ -203,6 +217,7 @@ This is the representation model applied to the wire — *distinct nominal types
 
 ## Change log
 - 2026-08-25: **resolved how scale reaches the wire** — it travels only when the type cannot supply it. Concrete types with a built-in precision send the bare value string; the general `FixedDecimal` sends `{"value":…,"scale":…}`, still at exactly `scale` digits. Recorded why concrete types are preferred where a precision is common enough to name: a precision change becomes a visible, versionable change to the *type* rather than a silent variation between payloads that both parse. `ExchangeRate` noted as the case to decide when it is built.
+- 2026-08-26: **enums travel as their member name, never an ordinal.** A number on the wire would make the member list's *order* part of the contract, so inserting a member would silently move every value after it. Recorded the two consequences: C# must be configured to write enums as strings rather than take the serialiser's numeric default, and — upstream in `c5n` — a member name is a **published token**, so no casing is applied to it anywhere and enum members are declared in the schema rather than collected from data (a typo that minted a member would mint a wire token with it).
 - 2026-08-25: **pinned the wire format.** `Money` serialises as `{"amount":"12.34","currency":"GBP"}` — the readable envelope chosen over minor units, since a wire body is what gets debugged and what third parties read. Full precision always, zeros included, which makes it canonical again; a **strict** parser that errors rather than coerces, matching the temporal-type decision; sign in the grammar with **zero unsigned**; numeric payloads always strings, never JSON numbers; reference types as their key. Recorded the human/wire asymmetry — `l10n`'s input boundary is lenient, the wire is strict, and one parser must not serve both. Left open: `FixedDecimal`'s consumer-chosen scale has no currency to derive precision from.
 - 2026-08-25: **pinned the math/presentation seam and the user-input rule.** `l10n` does no arithmetic: the minor↔major digit conversion is `f8n`'s, and the corollary is written into the l10n relationship section because it is the easy one to breach — deriving `12.34` from `1234` *looks* like formatting and is scaled-integer division. Added the input-precision rule: the currency scale is a **validation** rule, not a rounding site, tested on the value rather than the digits typed — convert to minor units exactly, accept iff integer, so short input pads, redundant zeros are free, and an unrepresentable value fails with a message naming the scale. Recorded why that does not contradict no-silent-rounding: that discipline is about chained arithmetic, not a single typed amount.
 - 2026-07-17: **specified `allocate` as a conserving partition** (`sum(parts) == whole`, exactly) with a **parameterised, no-default `AllocationRule`** (`LargestRemainder` / `Designated` / `Sequential`) — f8n can't know the mandated method ahead of time. Corrected the doc's mis-filing of `allocate/split` as a `RoundingMode` op in three places (it conserves; rounding-each-part doesn't). Weighted shares use exact `Rational`; sign-symmetric; golden-vectored. New follow-ups: custom distributor = conformance hole; `net + residual` variant. *(Driven by the same 4dp fixed-point bite — money-splitting is the branch where `Rational` is wrong and `allocate` is right.)*

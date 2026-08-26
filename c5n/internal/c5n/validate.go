@@ -169,12 +169,19 @@ func buildKeyIndex(schema Schema, tables []*Table) (keyIndex, []string) {
 	return index, problems
 }
 
-// unresolvedReferences reports a reference field whose value names no declared row.
+// unresolvedReferences reports a reference field whose value names nothing that exists —
+// either a table row no data file declares, or an enum member the schema does not declare.
 //
-// c5n holds every table in memory, so it can answer this itself. Left unchecked, a stale or
-// mistyped reference is emitted verbatim — `Currency.XXX` — and the first thing to notice is
-// the target's compiler, which means it is caught only if someone compiles, reported against
-// generated code rather than the data file that is wrong, and reported once per language.
+// c5n holds every table and every enum in memory, so it can answer both itself. Left
+// unchecked, a stale or mistyped reference is emitted verbatim — `Currency.XXX` — and the
+// first thing to notice is the target's compiler, which means it is caught only if someone
+// compiles, reported against generated code rather than the data file that is wrong, and
+// reported once per language.
+//
+// The enum case matters more than the shape of the check suggests. Members are declared
+// rather than collected from data precisely so a value can only ever *select* a member;
+// without this check the alternative is not a compile error but a new member, and since
+// f8n serialises an enum as text, a typo would mint a wire token.
 func unresolvedReferences(schema Schema, tables []*Table, index keyIndex) []string {
 	var problems []string
 	for _, t := range tables {
@@ -185,13 +192,28 @@ func unresolvedReferences(schema Schema, tables []*Table, index keyIndex) []stri
 		for i, row := range t.Rows {
 			// Declaration order, so a row with several bad references reads top to bottom.
 			for _, f := range typ.Fields {
-				if !isReference(f.Type, schema) {
+				refType, ok := schema[f.Type]
+				if !ok || !isReference(f.Type, schema) {
 					continue
 				}
 				value, ok := row[f.Name]
 				if !ok {
 					continue // a missing field is the writers' error, at the point they need it
 				}
+
+				if refType.IsEnum() {
+					if refType.DeclaresMember(value) {
+						continue
+					}
+					// The members are listed in full, unlike a table's identities: an enum
+					// holds a handful of terms, so the list is the answer rather than a wall
+					// of keys burying it.
+					problems = append(problems, fmt.Sprintf(
+						"%s, %s: field %q names %s member %q, which the enum does not declare (declared: %s)",
+						t.Source, rowLabel(row, typ, i), f.Name, refType.Name, value, strings.Join(refType.Members, ", ")))
+					continue
+				}
+
 				if _, known := index[f.Type][value]; known {
 					continue
 				}

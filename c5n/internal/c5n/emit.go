@@ -64,14 +64,16 @@ func quote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
-// isReference reports whether a field's declared type is a keyed table type — i.e. a value
-// of that field names a constant in another generated table (Currency.GBP), not a literal.
+// isReference reports whether a field's declared type is one whose values are *named*
+// rather than built: a keyed table row (Currency.GBP) or an enum member (TaxType.VAT).
+// Either way the emitted expression is a name, not a literal and not a ctor call.
 //
-// Whether the row it names actually exists is Validate's question, settled before any
-// writer runs, so a writer emits the reference without re-checking it.
+// Whether the name actually resolves — a row that exists, a member that is declared — is
+// Validate's question, settled before any writer runs, so a writer emits the reference
+// without re-checking it.
 func isReference(declType string, schema Schema) bool {
 	t, ok := schema[declType]
-	return ok && t.Key != ""
+	return ok && (t.Key != "" || t.IsEnum())
 }
 
 // construct renders one row's construction expression: the type's emit: recipe for this
@@ -110,7 +112,7 @@ func construct(typ *Type, target string, args []string, byField map[string]strin
 type valueContext struct {
 	schema Schema
 	target string
-	ref    func(fieldType, value string) string
+	ref    func(refType *Type, value string) string
 	use    func(typeName string)
 }
 
@@ -131,7 +133,7 @@ const maxNestDepth = 16
 func emitValue(declType, text string, ctx valueContext, depth int) (string, error) {
 	switch {
 	case isReference(declType, ctx.schema):
-		return ctx.ref(declType, text), nil
+		return ctx.ref(ctx.schema[declType], text), nil
 	case isScalar(declType):
 		return scalarLiteral(declType, text, ctx.target)
 	}
@@ -199,7 +201,7 @@ func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc str
 	ctx := valueContext{
 		schema: schema,
 		target: "csharp",
-		ref:    func(fieldType, value string) string { return fieldType + "." + value },
+		ref:    func(refType *Type, value string) string { return refType.Name + "." + value },
 		use:    func(string) {},
 	}
 
@@ -221,7 +223,7 @@ func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc str
 	}
 
 	var b strings.Builder
-	b.WriteString(csharpHeader(schemaSrc, t.Source))
+	b.WriteString(csharpHeader(schemaSrc + " + " + t.Source))
 	fmt.Fprintf(&b, "namespace %s;\n\n", target.Namespace)
 	fmt.Fprintf(&b, "public partial class %s\n{\n", typ.Name)
 	b.WriteString(body.String())
@@ -233,24 +235,42 @@ func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc str
 // C#, TS references are bare imported names (GBP), so the writer also collects the imports.
 func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error) {
 	var refOrder []string            // referenced types, in first-appearance order
-	refVals := map[string][]string{} // refType -> referenced values (deduped, ordered)
-	seen := map[string]bool{}        // "refType.value" already imported
+	refVals := map[string][]string{} // refType -> identifiers imported from its module
+	seen := map[string]bool{}        // "refType.identifier" already imported
 
 	var usedOrder []string    // hand-written types the values construct, first-appearance
 	used := map[string]bool{} // already noted
 
+	// importFrom records one identifier to import from a referenced type's generated
+	// module, deduped and in first-appearance order so the import block is deterministic.
+	importFrom := func(refType, identifier string) {
+		key := refType + "." + identifier
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		if _, ok := refVals[refType]; !ok {
+			refOrder = append(refOrder, refType)
+		}
+		refVals[refType] = append(refVals[refType], identifier)
+	}
+
 	ctx := valueContext{
 		schema: schema,
 		target: "ts",
-		ref: func(fieldType, value string) string {
-			if key := fieldType + "." + value; !seen[key] {
-				seen[key] = true
-				if _, ok := refVals[fieldType]; !ok {
-					refOrder = append(refOrder, fieldType)
-				}
-				refVals[fieldType] = append(refVals[fieldType], value)
+		// TS imports exactly what it names, and the two reference shapes name different
+		// things. A table row is its own exported constant, so the constant is imported and
+		// used bare (GBP). An enum is a single exported const object whose members are
+		// properties, so the *type* is imported once however many members are used, and the
+		// member is reached through it (TaxType.VAT) — which is also what makes the
+		// reference read identically to C#.
+		ref: func(refType *Type, value string) string {
+			if refType.IsEnum() {
+				importFrom(refType.Name, refType.Name)
+				return refType.Name + "." + value
 			}
-			return value // bare imported name
+			importFrom(refType.Name, value)
+			return value
 		},
 		// TS has no partial, so a constructed hand-written type has to be imported by name.
 		use: func(typeName string) {
@@ -279,7 +299,7 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 	}
 
 	var b strings.Builder
-	b.WriteString(tsHeader(schemaSrc, t.Source))
+	b.WriteString(tsHeader(schemaSrc + " + " + t.Source))
 	// The hand-written types live one dir up from the generated file, by convention. Import
 	// specifiers carry the ".js" extension: TypeScript resolves it back to the ".ts" source,
 	// and it is what Node's ESM loader requires to run the compiled output directly — without
@@ -296,14 +316,67 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 	return b.String(), nil
 }
 
-func csharpHeader(schemaSrc, dataSrc string) string {
+// Enums are the first type c5n emits a *body* for rather than instances of a hand-written
+// one. They are generated from the schema alone: members are declared, so an enum exists
+// whether or not any data row has referenced it yet.
+//
+// A member's name is emitted verbatim in both targets, and no casing is applied anywhere.
+// That is not a style choice — f8n serialises an enum as text, so the member name is the
+// token that crosses the wire, and a generator that rewrote `standard` to `Standard` would
+// be rewriting a published contract. It is also the only rule under which an acronym
+// survives: any automatic PascalCase turns VAT into Vat.
+
+// emitEnumCSharp renders a generated enum as a plain C# enum in the target's namespace.
+func emitEnumCSharp(typ *Type, target Target, schemaSrc string) string {
+	var b strings.Builder
+	b.WriteString(csharpHeader(schemaSrc))
+	fmt.Fprintf(&b, "namespace %s;\n\n", target.Namespace)
+	fmt.Fprintf(&b, "public enum %s\n{\n", typ.Name)
+	for _, member := range typ.Members {
+		fmt.Fprintf(&b, "    %s,\n", member)
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// emitEnumTS renders a generated enum as a frozen const object plus a union type of its
+// values — deliberately not a TS `enum`.
+//
+// The const object gives `TaxType.VAT` as a value expression, so a reference reads the same
+// in both targets and the shared value-emitter needs no per-target spelling. Each member's
+// value is its own name, so the TS runtime value *is* the serialised token that C# writes
+// for the same member — the two agree by construction rather than through a converter
+// someone has to keep in sync. A TS `enum` would give neither: it is number-backed, and it
+// is not erasable syntax, so it is rejected by type-stripping runtimes.
+//
+// The const and the type share a name legally: TypeScript keeps values and types in
+// separate namespaces, so `TaxType` is both the object and the union, which is what makes
+// it read like an enum at the use site.
+func emitEnumTS(typ *Type, schemaSrc string) string {
+	var b strings.Builder
+	b.WriteString(tsHeader(schemaSrc))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "export const %s = {\n", typ.Name)
+	for _, member := range typ.Members {
+		fmt.Fprintf(&b, "  %s: %s,\n", member, quote(member))
+	}
+	b.WriteString("} as const;\n\n")
+	fmt.Fprintf(&b, "export type %s = (typeof %s)[keyof typeof %s];\n", typ.Name, typ.Name, typ.Name)
+	return b.String()
+}
+
+// The headers take one already-joined source list rather than schema + data, because not
+// every emitted unit has a data file: an enum's members are declared, so it is generated
+// from the schema alone.
+
+func csharpHeader(sources string) string {
 	return "// <auto-generated>\n" +
-		"//   Generated by c5n from " + schemaSrc + " + " + dataSrc + " — DO NOT EDIT.\n" +
+		"//   Generated by c5n from " + sources + " — DO NOT EDIT.\n" +
 		"//   Reproducible: re-run `c5n build`. The drift-guard regenerates + diffs against this file.\n" +
 		"// </auto-generated>\n"
 }
 
-func tsHeader(schemaSrc, dataSrc string) string {
-	return "// GENERATED by c5n from " + schemaSrc + " + " + dataSrc + " — DO NOT EDIT.\n" +
+func tsHeader(sources string) string {
+	return "// GENERATED by c5n from " + sources + " — DO NOT EDIT.\n" +
 		"// Reproducible: re-run `c5n build`. The drift-guard regenerates + diffs against this file.\n"
 }

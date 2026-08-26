@@ -68,6 +68,47 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 
 	var files []GenFile
 	emitters := map[string]string{} // output path -> the sources that produced it
+
+	// addFile records one emitted file. Two units resolving to one path means one silently
+	// overwrites the other, so it is an error rather than a race between writes — the state
+	// it used to produce was a `c5n check` failure immediately after a clean build,
+	// advising a rebuild that could not fix it.
+	addFile := func(outPath, code, targetName, source string) error {
+		rel, _ := filepath.Rel(dir, outPath)
+		if prev, clash := emitters[outPath]; clash {
+			return fmt.Errorf("%s would be written twice — from %s and from %s", rel, prev, source)
+		}
+		emitters[outPath] = source
+		files = append(files, GenFile{Path: outPath, Rel: rel, Content: code, Target: targetName, Source: source})
+		return nil
+	}
+
+	// Enums are emitted from the schema, not from data. Their members are declared, so an
+	// enum exists — and is part of the published API — whether or not any data row has
+	// referenced it yet. Every other unit so far is derived from a data file, which is why
+	// this is its own pass rather than another case in the loop below.
+	for _, typ := range sortedEnums(schema) {
+		for _, name := range targetNames {
+			target := m.Targets[name]
+			outPath, err := outputPath(dir, target, name, typ.Name)
+			if err != nil {
+				return nil, nil, err
+			}
+			var code string
+			switch name {
+			case "csharp":
+				code = emitEnumCSharp(typ, target, schemaSrc)
+			case "ts":
+				code = emitEnumTS(typ, schemaSrc)
+			default:
+				return nil, nil, fmt.Errorf("unknown target %q in manifest", name)
+			}
+			if err := addFile(outPath, code, name, schemaSrc); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
 	for _, t := range mergeByEmittedType(tables) {
 		// Validate has already rejected an unknown type; the check keeps the lookup total.
 		typ, ok := schema[t.ElemType]
@@ -76,33 +117,63 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 		}
 		for _, name := range targetNames {
 			target := m.Targets[name]
-			var code, outPath string
+			outPath, err := outputPath(dir, target, name, typ.Name)
+			if err != nil {
+				return nil, nil, err
+			}
+			var code string
 			switch name {
 			case "csharp":
 				code, err = emitCSharp(t, typ, schema, target, schemaSrc)
-				outPath = filepath.Join(dir, target.Out, typ.Name+".g.cs")
 			case "ts":
 				code, err = emitTS(t, typ, schema, schemaSrc)
-				outPath = filepath.Join(dir, target.Out, strings.ToLower(typ.Name)+".data.ts")
 			default:
 				return nil, nil, fmt.Errorf("unknown target %q in manifest", name)
 			}
 			if err != nil {
 				return nil, nil, fmt.Errorf("emit %s/%s: %w", name, typ.Name, err)
 			}
-			rel, _ := filepath.Rel(dir, outPath)
-			// Two units resolving to one path means one silently overwrites the other, so
-			// it is an error rather than a race between writes. Unreachable while table<T>
-			// is the only kind — merging leaves one unit per type — but this is what keeps
-			// it unreachable as further kinds are added.
-			if prev, clash := emitters[outPath]; clash {
-				return nil, nil, fmt.Errorf("%s would be written twice — from %s and from %s", rel, prev, t.Source)
+			if err := addFile(outPath, code, name, t.Source); err != nil {
+				return nil, nil, err
 			}
-			emitters[outPath] = t.Source
-			files = append(files, GenFile{Path: outPath, Rel: rel, Content: code, Target: name, Source: t.Source})
 		}
 	}
 	return files, m, nil
+}
+
+// outputPath is where the unit declaring typeName goes in one target.
+//
+// Output is named for what it *declares* (DESIGN.md → output paths), so this depends on the
+// type and the target and on nothing else — not on the data file a table happened to be
+// authored in, and not on whether the unit came from data at all. One home for the rule, so
+// the two emission passes above cannot drift apart on it.
+func outputPath(dir string, target Target, targetName, typeName string) (string, error) {
+	switch targetName {
+	case "csharp":
+		return filepath.Join(dir, target.Out, typeName+".g.cs"), nil
+	case "ts":
+		return filepath.Join(dir, target.Out, strings.ToLower(typeName)+".data.ts"), nil
+	}
+	return "", fmt.Errorf("unknown target %q in manifest", targetName)
+}
+
+// sortedEnums returns the schema's enums in name order. Schema is a map and Go randomises
+// map iteration, so without this the *set* of emitted files would be stable but their order
+// would not — and an unstable build order is one the drift-guard cannot report cleanly.
+func sortedEnums(schema Schema) []*Type {
+	var names []string
+	for name, typ := range schema {
+		if typ.IsEnum() {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	enums := make([]*Type, 0, len(names))
+	for _, name := range names {
+		enums = append(enums, schema[name])
+	}
+	return enums
 }
 
 // mergeByEmittedType groups the loaded tables by what they are *emitted as*, because that
