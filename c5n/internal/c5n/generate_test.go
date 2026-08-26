@@ -24,6 +24,13 @@ const currencySchemaSrc = "Currency:\n" +
 // cases where what is under test is a declaration rather than a data row.
 func fixtureWithSchema(t *testing.T, schemaSrc string, dataFiles map[string]string) string {
 	t.Helper()
+	return fixtureWithManifest(t, "", schemaSrc, dataFiles)
+}
+
+// fixtureWithManifest is the same project with extra manifest sections appended — for the
+// cases where what is under test is declared in c5n.yaml rather than in the schema or data.
+func fixtureWithManifest(t *testing.T, manifestExtra, schemaSrc string, dataFiles map[string]string) string {
+	t.Helper()
 	dir := t.TempDir()
 	files := map[string]string{
 		"c5n.yaml": "targets:\n" +
@@ -31,7 +38,7 @@ func fixtureWithSchema(t *testing.T, schemaSrc string, dataFiles map[string]stri
 			"  ts:     { out: gen/ts/ }\n" +
 			"sources:\n" +
 			"  schema: schema/*.yaml\n" +
-			"  data:   data/**/*.yaml\n",
+			"  data:   data/**/*.yaml\n" + manifestExtra,
 		"schema/types.yaml": schemaSrc,
 	}
 	for name, content := range dataFiles {
@@ -190,6 +197,8 @@ const levySchemaSrc = "Levy:\n" +
 	"  external: true\n" +
 	"  key: code\n" +
 	"  fields: { code: string, jurisdiction: string, numeric: int }\n"
+
+const levyAndCurrencySchemaSrc = levySchemaSrc + currencySchemaSrc
 
 // The whole claim of `common:`-hoisting is that it changes the data file and nothing else.
 // So the test is not "does it merge" but "is the output the same as writing every field
@@ -372,6 +381,48 @@ func TestSeriesEntryWithoutItsEnvelopeIsRejected(t *testing.T) {
 	for _, want := range []string{`"from"`, "EffectiveDated", "envelope"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error is missing %q:\n%s", want, err)
+		}
+	}
+}
+
+// An attribution obligation travels with the artefact rather than sitting in a NOTICE file
+// somebody has to remember. The point of emitting it into the header is that a generated
+// file which leaves the repo takes its licence notice with it.
+//
+// The second data file is the control: it is not under the licensed path, so its unit must
+// carry no notice. A rule that attributed everything would satisfy the obligation and say
+// nothing true.
+func TestAttributionTravelsWithTheGeneratedFile(t *testing.T) {
+	dir := fixtureWithManifest(t,
+		"attribution:\n"+
+			"  - match: data/licensed/**\n"+
+			"    notice: |\n"+
+			"      Copyright (c) 1991-2026 Example, Inc.\n"+
+			"      Distributed under the Example License.\n",
+		levyAndCurrencySchemaSrc,
+		map[string]string{
+			"licensed/levies.yaml": "type: table<Levy>\nitems:\n  - { code: STD, jurisdiction: GB, numeric: 20 }\n",
+			"own/currencies.yaml":  "type: table<Currency>\nitems:\n  - { code: GBP, numeric: 826 }\n",
+		})
+
+	files, _, err := generate(dir)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	for _, f := range files {
+		derived := strings.Contains(f.Source, "licensed/")
+		hasNotice := strings.Contains(f.Content, "Copyright (c) 1991-2026 Example, Inc.")
+		switch {
+		case derived && !hasNotice:
+			t.Errorf("%s is derived from a licensed source but carries no notice:\n%s", f.Rel, f.Content)
+		case !derived && hasNotice:
+			t.Errorf("%s is not derived from the licensed source but carries its notice:\n%s", f.Rel, f.Content)
+		}
+		// Every line of the notice has to stay inside a comment, or the generated file
+		// stops compiling the moment a licence runs to more than one line.
+		if hasNotice && !strings.Contains(f.Content, "Distributed under the Example License.") {
+			t.Errorf("%s dropped the second line of the notice:\n%s", f.Rel, f.Content)
 		}
 	}
 }

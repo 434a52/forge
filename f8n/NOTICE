@@ -1,0 +1,57 @@
+f8n
+Copyright (c) Chris Richardson
+Licensed under the MIT License. See LICENSE.
+
+================================================================================
+Third-party data
+================================================================================
+
+f8n's reference tables — country and currency identity, currency minor units,
+territory relationships — are derived from the Unicode Common Locale Data
+Repository (CLDR), which is distributed under the Unicode License V3.
+
+That licence permits use, modification, redistribution and sale, subject to one
+obligation: its copyright and permission notice must appear with all copies of
+the data, or in associated documentation. This file, together with the notice
+c5n emits into the header of every generated file derived from a CLDR source,
+is how f8n meets it.
+
+  Copyright (c) 1991-2026 Unicode, Inc. All rights reserved.
+  Distributed under the Terms of Use in https://www.unicode.org/copyright.html
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of data files and any associated documentation (the "Data Files") or software
+  and any associated documentation (the "Software") to deal in the Data Files or
+  Software without restriction, including without limitation the rights to use,
+  copy, modify, merge, publish, distribute, and/or sell copies of the Data Files
+  or Software, and to permit persons to whom the Data Files or Software are
+  furnished to do so, provided that either (a) this copyright and permission
+  notice appear with all copies of the Data Files or Software, or (b) this
+  copyright and permission notice appear in associated Documentation.
+
+  THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+  KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF THIRD
+  PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN
+  THIS NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL
+  DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+  PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+  ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE
+  DATA FILES OR SOFTWARE.
+
+  Except as contained in this notice, the name of a copyright holder shall not
+  be used in advertising or otherwise to promote the sale, use or other dealings
+  in these Data Files or Software without prior written authorization of the
+  copyright holder.
+
+--------------------------------------------------------------------------------
+VERIFY BEFORE RELEASE: the notice above was transcribed on 2026-08-26 and has
+not been diffed character-for-character against the canonical text. Before any
+published release, replace it wholesale with the current text from
+https://www.unicode.org/license.txt — a licence notice is the one thing in this
+repo that must not be approximately right.
+
+The reference tables are, as of 2026-08-26, still a hand-authored skeleton
+rather than CLDR-derived output, so no CLDR data ships yet. This notice is in
+place ahead of the pipeline so the obligation cannot be forgotten once it does.
+--------------------------------------------------------------------------------

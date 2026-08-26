@@ -39,7 +39,7 @@ func TestDecimalPrecisionSurvives(t *testing.T) {
 	tbl := mustTable(t, "type: table<Rate>\nitems:\n  - code: HIGH\n    value: 123456789.123456789\n")
 	schema := rateSchema(nil)
 
-	cs, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, "s.yaml")
+	cs, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitCSharp: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestDecimalPrecisionSurvives(t *testing.T) {
 		t.Errorf("C#: want %s\ngot:\n%s", want, cs)
 	}
 
-	ts, err := emitTS(tbl, schema["Rate"], schema, "s.yaml")
+	ts, err := emitTS(tbl, schema["Rate"], schema, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitTS: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestEmitRecipePerTarget(t *testing.T) {
 		"ts":     "Rate.parse({code}, String({value}))",
 	})
 
-	cs, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, "s.yaml")
+	cs, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitCSharp: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestEmitRecipePerTarget(t *testing.T) {
 		t.Errorf("C#: want %s\ngot:\n%s", want, cs)
 	}
 
-	ts, err := emitTS(tbl, schema["Rate"], schema, "s.yaml")
+	ts, err := emitTS(tbl, schema["Rate"], schema, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitTS: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestEmitRecipeFallsBackToConvention(t *testing.T) {
 	tbl := mustTable(t, "type: table<Rate>\nitems:\n  - code: VAT\n    value: 0.20\n")
 	schema := rateSchema(map[string]string{"csharp": "Rate.Parse({code})"})
 
-	ts, err := emitTS(tbl, schema["Rate"], schema, "s.yaml")
+	ts, err := emitTS(tbl, schema["Rate"], schema, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitTS: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestEmitRecipeUnknownField(t *testing.T) {
 	tbl := mustTable(t, "type: table<Rate>\nitems:\n  - code: VAT\n    value: 0.20\n")
 	schema := rateSchema(map[string]string{"csharp": "Rate.Parse({code}, {rate})"})
 
-	_, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, "s.yaml")
+	_, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err == nil {
 		t.Fatal("want an error naming the undeclared field")
 	}
@@ -157,7 +157,7 @@ func TestMissingFieldIsAnError(t *testing.T) {
 	tbl := mustTable(t, "type: table<Rate>\nitems:\n  - code: VAT\n")
 	schema := rateSchema(nil)
 
-	_, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, "s.yaml")
+	_, err := emitCSharp(tbl, schema["Rate"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err == nil {
 		t.Fatal("want an error for the missing field")
 	}
@@ -186,7 +186,7 @@ func TestReferenceResolution(t *testing.T) {
 	}
 	tbl := mustTable(t, "type: table<Country>\nitems:\n  - alpha3: GBR\n    ccy: GBP\n")
 
-	cs, err := emitCSharp(tbl, schema["Country"], schema, Target{Namespace: "X"}, "s.yaml")
+	cs, err := emitCSharp(tbl, schema["Country"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitCSharp: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestReferenceResolution(t *testing.T) {
 		t.Errorf("C#: want %s\ngot:\n%s", want, cs)
 	}
 
-	ts, err := emitTS(tbl, schema["Country"], schema, "s.yaml")
+	ts, err := emitTS(tbl, schema["Country"], schema, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitTS: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestNestedCtorUsesTheRecipe(t *testing.T) {
 		"ts":     "Percentage.fromPercent({value})",
 	})
 
-	cs, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	cs, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitCSharp: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestNestedCtorUsesTheRecipe(t *testing.T) {
 		t.Errorf("C#: want %s\ngot:\n%s", want, cs)
 	}
 
-	ts, err := emitTS(tbl, schema["Band"], schema, "s.yaml")
+	ts, err := emitTS(tbl, schema["Band"], schema, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitTS: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestNestedCtorFallsBackToConvention(t *testing.T) {
 	tbl := mustTable(t, "type: table<Band>\nitems:\n  - { code: STANDARD, rate: 17.5 }\n")
 	schema := wrapperSchema(nil)
 
-	cs, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	cs, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitCSharp: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestMultiFieldNestedTypeIsRejected(t *testing.T) {
 	schema["Percentage"].Fields = append(schema["Percentage"].Fields, Field{Name: "basis", Type: "string"})
 	tbl := mustTable(t, "type: table<Band>\nitems:\n  - { code: STANDARD, rate: 17.5 }\n")
 
-	_, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	_, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err == nil {
 		t.Fatal("want an error for a multi-field nested type, got nil")
 	}
@@ -292,7 +292,7 @@ func TestSelfNestingTypeIsRejected(t *testing.T) {
 	schema["Percentage"].Fields = []Field{{Name: "value", Type: "Percentage"}}
 	tbl := mustTable(t, "type: table<Band>\nitems:\n  - { code: STANDARD, rate: 17.5 }\n")
 
-	_, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, "s.yaml")
+	_, err := emitCSharp(tbl, schema["Band"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err == nil {
 		t.Fatal("want an error for a self-nesting type, got nil")
 	}
@@ -320,14 +320,14 @@ func taxSchema() Schema {
 func TestEnumMembersAreEmittedVerbatim(t *testing.T) {
 	typ := taxSchema()["TaxType"]
 
-	cs := emitEnumCSharp(typ, Target{Namespace: "X"}, "s.yaml")
+	cs := emitEnumCSharp(typ, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	for _, want := range []string{"public enum TaxType", "    VAT,", "    GST,"} {
 		if !strings.Contains(cs, want) {
 			t.Errorf("C#: want %q\ngot:\n%s", want, cs)
 		}
 	}
 
-	ts := emitEnumTS(typ, "s.yaml")
+	ts := emitEnumTS(typ, Provenance{Sources: "s.yaml"})
 	for _, want := range []string{
 		"export const TaxType = {",
 		`  VAT: "VAT",`,
@@ -354,11 +354,11 @@ func TestEnumReferenceIsIdenticalInBothTargets(t *testing.T) {
 	tbl := mustTable(t, "type: table<Levy>\nitems:\n  - { code: STD, taxType: VAT }\n")
 	schema := taxSchema()
 
-	cs, err := emitCSharp(tbl, schema["Levy"], schema, Target{Namespace: "X"}, "s.yaml")
+	cs, err := emitCSharp(tbl, schema["Levy"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitCSharp: %v", err)
 	}
-	ts, err := emitTS(tbl, schema["Levy"], schema, "s.yaml")
+	ts, err := emitTS(tbl, schema["Levy"], schema, Provenance{Sources: "s.yaml"})
 	if err != nil {
 		t.Fatalf("emitTS: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestSeriesRecipeIsRequiredAndMustTakeTheEntries(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			schema := seriesOnly(c.emit)
-			_, err := emitSeriesCSharp(tbl, schema["Series"], schema["Reading"], schema, Target{Namespace: "X"}, "s.yaml")
+			_, err := emitSeriesCSharp(tbl, schema["Series"], schema["Reading"], schema, Target{Namespace: "X"}, Provenance{Sources: "s.yaml"})
 			if err == nil {
 				t.Fatal("want an error, got nil")
 			}

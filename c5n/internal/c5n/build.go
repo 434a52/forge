@@ -94,6 +94,7 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 	// enum exists — and is part of the published API — whether or not any data row has
 	// referenced it yet. Every other unit so far is derived from a data file, which is why
 	// this is its own pass rather than another case in the loop below.
+	enumProv := Provenance{Sources: schemaSrc, Notices: noticesFor(m, schemaPaths)}
 	for _, typ := range sortedEnums(schema) {
 		for _, name := range targetNames {
 			target := m.Targets[name]
@@ -104,9 +105,9 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 			var code string
 			switch name {
 			case "csharp":
-				code = emitEnumCSharp(typ, target, schemaSrc)
+				code = emitEnumCSharp(typ, target, enumProv)
 			case "ts":
-				code = emitEnumTS(typ, schemaSrc)
+				code = emitEnumTS(typ, enumProv)
 			default:
 				return nil, nil, fmt.Errorf("unknown target %q in manifest", name)
 			}
@@ -129,6 +130,13 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 		if series != nil {
 			unitName = t.Name
 		}
+		// A unit's attribution is whatever its own sources oblige — the schema files plus
+		// every data file merged into it — so a licensed table carries its notice and the
+		// hand-authored one beside it does not.
+		prov := Provenance{
+			Sources: schemaSrc + " + " + t.Source,
+			Notices: noticesFor(m, append(append([]string{}, schemaPaths...), strings.Split(t.Source, " + ")...)),
+		}
 
 		for _, name := range targetNames {
 			target := m.Targets[name]
@@ -139,13 +147,13 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 			var code string
 			switch {
 			case name == "csharp" && series != nil:
-				code, err = emitSeriesCSharp(t, series, typ, schema, target, schemaSrc)
+				code, err = emitSeriesCSharp(t, series, typ, schema, target, prov)
 			case name == "csharp":
-				code, err = emitCSharp(t, typ, schema, target, schemaSrc)
+				code, err = emitCSharp(t, typ, schema, target, prov)
 			case name == "ts" && series != nil:
-				code, err = emitSeriesTS(t, series, typ, schema, schemaSrc)
+				code, err = emitSeriesTS(t, series, typ, schema, prov)
 			case name == "ts":
-				code, err = emitTS(t, typ, schema, schemaSrc)
+				code, err = emitTS(t, typ, schema, prov)
 			default:
 				return nil, nil, fmt.Errorf("unknown target %q in manifest", name)
 			}
@@ -158,6 +166,47 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 		}
 	}
 	return files, m, nil
+}
+
+// noticesFor collects the attribution notices owed by a unit, given the source files that fed
+// it. Deduplicated and in declaration order, so two files under one licensed source produce
+// one notice and the header is stable.
+func noticesFor(m *Manifest, sources []string) []string {
+	var notices []string
+	seen := map[string]bool{}
+	for _, rule := range m.Attribution {
+		for _, source := range sources {
+			if !matchesPattern(source, rule.Match) {
+				continue
+			}
+			if !seen[rule.Notice] {
+				seen[rule.Notice] = true
+				notices = append(notices, rule.Notice)
+			}
+			break
+		}
+	}
+	return notices
+}
+
+// matchesPattern reports whether a source path matches an attribution pattern. It supports
+// the same two shapes expandGlob does, so a pattern that selects sources also selects them
+// here — one spelling for the reader, rather than a second dialect for attribution.
+func matchesPattern(path, pattern string) bool {
+	if strings.Contains(pattern, "**") {
+		prefix := strings.TrimSuffix(pattern[:strings.Index(pattern, "**")], "/")
+		if prefix != "" && !strings.HasPrefix(path, prefix+"/") {
+			return false
+		}
+		namePat := filepath.Base(pattern)
+		if namePat == "**" {
+			return true
+		}
+		ok, _ := filepath.Match(namePat, filepath.Base(path))
+		return ok
+	}
+	ok, _ := filepath.Match(pattern, path)
+	return ok
 }
 
 // outputPath is where the unit declaring typeName goes in one target.

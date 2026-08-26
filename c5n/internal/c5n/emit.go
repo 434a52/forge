@@ -204,7 +204,7 @@ func rowName(row Row, typ *Type) (string, error) {
 }
 
 // emitCSharp renders one table<T> to a C# partial-class file of static readonly constants.
-func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc string) (string, error) {
+func emitCSharp(t *Table, typ *Type, schema Schema, target Target, prov Provenance) (string, error) {
 	// C# references a sibling constant by its qualified name: Currency.GBP. Hand-written
 	// types need no import — a generated partial shares their namespace.
 	ctx := valueContext{
@@ -255,7 +255,7 @@ func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc str
 	}
 
 	var b strings.Builder
-	b.WriteString(csharpHeader(schemaSrc + " + " + t.Source))
+	b.WriteString(csharpHeader(prov))
 	fmt.Fprintf(&b, "namespace %s;\n\n", target.Namespace)
 	fmt.Fprintf(&b, "public partial class %s\n{\n", typ.Name)
 	b.WriteString(body.String())
@@ -265,7 +265,7 @@ func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc str
 
 // emitTS renders one table<T> to a TypeScript module of exported const instances. Unlike
 // C#, TS references are bare imported names (GBP), so the writer also collects the imports.
-func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error) {
+func emitTS(t *Table, typ *Type, schema Schema, prov Provenance) (string, error) {
 	var refOrder []string            // referenced types, in first-appearance order
 	refVals := map[string][]string{} // refType -> identifiers imported from its module
 	seen := map[string]bool{}        // "refType.identifier" already imported
@@ -352,7 +352,7 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 	}
 
 	var b strings.Builder
-	b.WriteString(tsHeader(schemaSrc + " + " + t.Source))
+	b.WriteString(tsHeader(prov))
 	// The hand-written types live one dir up from the generated file, by convention. Import
 	// specifiers carry the ".js" extension: TypeScript resolves it back to the ".ts" source,
 	// and it is what Node's ESM loader requires to run the compiled output directly — without
@@ -515,7 +515,7 @@ func seriesEntries(t *Table, series, typ *Type, ctx valueContext, pair func([]st
 // hang from, and naming that type after the series is what keeps the file name, the class
 // and the declaration in agreement. TypeScript has no such need, so it exports the series
 // directly — the one place the two targets differ in shape rather than spelling.
-func emitSeriesCSharp(t *Table, series, typ *Type, schema Schema, target Target, schemaSrc string) (string, error) {
+func emitSeriesCSharp(t *Table, series, typ *Type, schema Schema, target Target, prov Provenance) (string, error) {
 	ctx := valueContext{
 		schema: schema,
 		target: "csharp",
@@ -534,7 +534,7 @@ func emitSeriesCSharp(t *Table, series, typ *Type, schema Schema, target Target,
 	}
 
 	var b strings.Builder
-	b.WriteString(csharpHeader(schemaSrc + " + " + t.Source))
+	b.WriteString(csharpHeader(prov))
 	fmt.Fprintf(&b, "namespace %s;\n\n", target.Namespace)
 	fmt.Fprintf(&b, "public static class %s\n{\n", t.Name)
 	fmt.Fprintf(&b, "    public static readonly %s<%s> Series = %s;\n", series.Name, typ.Name, call)
@@ -543,7 +543,7 @@ func emitSeriesCSharp(t *Table, series, typ *Type, schema Schema, target Target,
 }
 
 // emitSeriesTS renders one named series as a single exported const.
-func emitSeriesTS(t *Table, series, typ *Type, schema Schema, schemaSrc string) (string, error) {
+func emitSeriesTS(t *Table, series, typ *Type, schema Schema, prov Provenance) (string, error) {
 	var refOrder []string
 	refVals := map[string][]string{}
 	seen := map[string]bool{}
@@ -600,7 +600,7 @@ func emitSeriesTS(t *Table, series, typ *Type, schema Schema, schemaSrc string) 
 	noteUsed(series.Name)
 
 	var b strings.Builder
-	b.WriteString(tsHeader(schemaSrc + " + " + t.Source))
+	b.WriteString(tsHeader(prov))
 	for _, u := range usedOrder {
 		fmt.Fprintf(&b, "import { %s } from \"../%s.js\";\n", u, strings.ToLower(u))
 	}
@@ -623,9 +623,9 @@ func emitSeriesTS(t *Table, series, typ *Type, schema Schema, schemaSrc string) 
 // survives: any automatic PascalCase turns VAT into Vat.
 
 // emitEnumCSharp renders a generated enum as a plain C# enum in the target's namespace.
-func emitEnumCSharp(typ *Type, target Target, schemaSrc string) string {
+func emitEnumCSharp(typ *Type, target Target, prov Provenance) string {
 	var b strings.Builder
-	b.WriteString(csharpHeader(schemaSrc))
+	b.WriteString(csharpHeader(prov))
 	fmt.Fprintf(&b, "namespace %s;\n\n", target.Namespace)
 	fmt.Fprintf(&b, "public enum %s\n{\n", typ.Name)
 	for _, member := range typ.Members {
@@ -648,9 +648,9 @@ func emitEnumCSharp(typ *Type, target Target, schemaSrc string) string {
 // The const and the type share a name legally: TypeScript keeps values and types in
 // separate namespaces, so `TaxType` is both the object and the union, which is what makes
 // it read like an enum at the use site.
-func emitEnumTS(typ *Type, schemaSrc string) string {
+func emitEnumTS(typ *Type, prov Provenance) string {
 	var b strings.Builder
-	b.WriteString(tsHeader(schemaSrc))
+	b.WriteString(tsHeader(prov))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "export const %s = {\n", typ.Name)
 	for _, member := range typ.Members {
@@ -661,23 +661,52 @@ func emitEnumTS(typ *Type, schemaSrc string) string {
 	return b.String()
 }
 
-// The headers take one already-joined source list rather than schema + data, because not
-// every emitted unit has a data file: an enum's members are declared, so it is generated
-// from the schema alone.
+// Provenance is what a generated file says about where it came from: the sources it was
+// built from, and any attribution those sources oblige.
+//
+// Sources is one already-joined list rather than schema + data, because not every emitted
+// unit has a data file — an enum's members are declared, so it is generated from the schema
+// alone. Notices carry a licence obligation *with the artefact*, so a generated file that
+// leaves the repo takes its attribution with it and nobody has to remember a NOTICE file.
+type Provenance struct {
+	Sources string
+	Notices []string
+}
+
+// comment prefixes every line of every notice, so a multi-line licence stays a comment.
+func (p Provenance) comment(prefix string) string {
+	if len(p.Notices) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, notice := range p.Notices {
+		b.WriteString(strings.TrimRight(prefix, " ") + "\n")
+		for _, line := range strings.Split(strings.TrimRight(notice, "\n"), "\n") {
+			if line == "" {
+				b.WriteString(strings.TrimRight(prefix, " ") + "\n")
+				continue
+			}
+			b.WriteString(prefix + line + "\n")
+		}
+	}
+	return b.String()
+}
 
 // lowerFirst is the TypeScript spelling of an accessor c5n named: ByAlpha2 -> byAlpha2.
 func lowerFirst(name string) string {
 	return strings.ToLower(name[:1]) + name[1:]
 }
 
-func csharpHeader(sources string) string {
+func csharpHeader(prov Provenance) string {
 	return "// <auto-generated>\n" +
-		"//   Generated by c5n from " + sources + " — DO NOT EDIT.\n" +
+		"//   Generated by c5n from " + prov.Sources + " — DO NOT EDIT.\n" +
 		"//   Reproducible: re-run `c5n build`. The drift-guard regenerates + diffs against this file.\n" +
+		prov.comment("//   ") +
 		"// </auto-generated>\n"
 }
 
-func tsHeader(sources string) string {
-	return "// GENERATED by c5n from " + sources + " — DO NOT EDIT.\n" +
-		"// Reproducible: re-run `c5n build`. The drift-guard regenerates + diffs against this file.\n"
+func tsHeader(prov Provenance) string {
+	return "// GENERATED by c5n from " + prov.Sources + " — DO NOT EDIT.\n" +
+		"// Reproducible: re-run `c5n build`. The drift-guard regenerates + diffs against this file.\n" +
+		prov.comment("// ")
 }

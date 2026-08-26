@@ -1,7 +1,7 @@
 namespace F8n;
 
 /// <summary>
-/// ISO 4217 currency identity: alpha code, numeric code, official name, and minor-unit
+/// ISO 4217 currency identity: alpha code, numeric code, English display name, and minor-unit
 /// exponent. Identity + reference data only — locale-specific presentation (symbol,
 /// localised name) lives in l10n; money math lives on Money.
 /// </summary>
@@ -17,7 +17,8 @@ public partial class Currency
     /// <summary>ISO 4217 numeric code (e.g. 826 for GBP).</summary>
     public int Numeric { get; }
 
-    /// <summary>Official English name (invariant; localised display names are l10n's).</summary>
+    /// <summary>CLDR English display name (invariant; localised names are l10n's, from the same source).
+    /// Not the ISO 4217 name, which CLDR notes may differ.</summary>
     public string Name { get; }
 
     /// <summary>Default/canonical currency symbol (e.g. "£"). Locale-specific presentation

@@ -13,3 +13,16 @@ targets:
 sources:
   schema: schema/*.yaml
   data:   data/**/*.yaml
+
+# When the CLDR pipeline lands, the licence obligation is declared here and c5n emits the
+# notice into the header of every file generated from a matching source — so the attribution
+# travels with the artefact rather than depending on someone remembering NOTICE. Commented
+# out because the tables are still a hand-authored skeleton and no CLDR data ships yet;
+# attributing data we have not taken would be its own kind of wrong.
+#
+# attribution:
+#   - match: data/cldr/**
+#     notice: |
+#       Copyright (c) 1991-2026 Unicode, Inc. All rights reserved.
+#       Distributed under the Terms of Use in https://www.unicode.org/copyright.html
+#       (full notice in f8n/NOTICE)

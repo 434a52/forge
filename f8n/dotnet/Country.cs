@@ -1,7 +1,7 @@
 namespace F8n;
 
 /// <summary>
-/// ISO 3166 country identity: alpha-2, alpha-3 (identity), numeric code, official name,
+/// ISO 3166 country identity: alpha-2, alpha-3 (identity), numeric code, English display name,
 /// E.164 calling code, default currency, and the capital city's civil timezone. Identity +
 /// reference data; localised names / formatting live in l10n.
 /// </summary>

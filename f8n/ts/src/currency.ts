@@ -1,5 +1,5 @@
 /**
- * ISO 4217 currency identity: alpha code, numeric code, official name, minor-unit
+ * ISO 4217 currency identity: alpha code, numeric code, English display name, minor-unit
  * exponent. Identity + reference data only — symbol / localised name live in l10n,
  * money math lives on Money.
  *
@@ -12,7 +12,7 @@ export class Currency {
     readonly code: string,
     /** ISO 4217 numeric code (e.g. 826 for GBP). */
     readonly numeric: number,
-    /** Official English name (invariant; localised names are l10n's). */
+    /** CLDR English display name (invariant; localised names are l10n's, from the same source). Not the ISO 4217 name, which CLDR notes may differ. */
     readonly name: string,
     /** Default/canonical currency symbol (e.g. "£"). Locale-specific presentation is l10n's. */
     readonly symbol: string,
