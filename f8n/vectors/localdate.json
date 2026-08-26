@@ -243,6 +243,60 @@
           "error": true
         }
       ]
+    },
+    {
+      "rule": "properties — invariants that must hold for every input, so the expected value is \"true\" and it comes from the rule rather than from any implementation. That is what makes these the independent derivation path: a value captured from one language, and blessed by another written against the capture, would still satisfy a bulk vector and would not satisfy these. A failing property reports what broke rather than \"false\".",
+      "cases": [
+        {
+          "id": "prop-date-roundtrip",
+          "op": "property.roundTrip",
+          "in": [
+            "2011-01-04"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-date-roundtrip-min",
+          "op": "property.roundTrip",
+          "in": [
+            "0001-01-01"
+          ],
+          "out": "true",
+          "note": "The padding has to survive, or the canonical form is not canonical."
+        },
+        {
+          "id": "prop-date-roundtrip-max",
+          "op": "property.roundTrip",
+          "in": [
+            "9999-12-31"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-date-roundtrip-leap",
+          "op": "property.roundTrip",
+          "in": [
+            "2024-02-29"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-date-order",
+          "op": "property.orderIsTotal",
+          "in": [
+            "0001-01-01",
+            "2010-01-01",
+            "2010-01-02",
+            "2010-02-01",
+            "2011-01-04",
+            "2011-01-31",
+            "2011-02-01",
+            "9999-12-31"
+          ],
+          "out": "true",
+          "note": "Ascending. The 2010-01-02 / 2010-02-01 and 2011-01-31 / 2011-02-01 neighbours are the ones a comparison that weighs the day before the month gets backwards."
+        }
+      ]
     }
   ]
 }

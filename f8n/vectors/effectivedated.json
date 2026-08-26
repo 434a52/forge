@@ -59,6 +59,25 @@
           "note": "No answer, rather than the oldest known value. Returning \"A\" here would be a wrong number that looks like a right one."
         }
       ]
+    },
+    {
+      "rule": "properties — invariants that must hold for every input, so the expected value is \"true\" and it comes from the rule rather than from any implementation. That is what makes these the independent derivation path: a value captured from one language, and blessed by another written against the capture, would still satisfy a bulk vector and would not satisfy these. A failing property reports what broke rather than \"false\".",
+      "cases": [
+        {
+          "id": "prop-asof-at-each-boundary",
+          "op": "property.asOfAtEachBoundary",
+          "in": [],
+          "out": "true",
+          "note": "Every entry is in effect on the day it takes effect — trivial to state, and exactly what an off-by-one in the comparison breaks."
+        },
+        {
+          "id": "prop-order-independence",
+          "op": "property.orderIndependence",
+          "in": [],
+          "out": "true",
+          "note": "The series sorts its own entries, so the order a data file was written in cannot change an answer. Nothing else tests this, and the failure it prevents is a data file rearranged for readability changing a rate."
+        }
+      ]
     }
   ]
 }

@@ -195,13 +195,22 @@ the rational parse rather than money math, so the harness is shaped on an easy c
   kinds are exercised so far (bulk and reject); no transcribed authority example exists yet,
   since `Percentage` has no external authority to transcribe from — the first will arrive with
   a rate or a format grammar.*
-- [ ] **3.1b — properties.** Invariants asserted in both languages, carrying no expected value
+- ✓ **3.1b — properties.** Invariants asserted in both languages, carrying no expected value
   and so depending on no implementation: `sum(allocate(m, rule)) == m`,
   `allocate(−m) == −allocate(m)`, `FromPercent("17.5") == FromProportion("0.175")`,
   `parse(canonical(x)) == x`. Several are already stated as invariants in `../f8n/DESIGN.md`
   and sit there unused. They catch classes of error a captured vector cannot, because they do
   not encode a value — and they are the *independent derivation path*, which is the thing
   capturing from C# does not give us.
+
+  *Landed for what exists: `fromPercent(x) == fromProportion(x/100)` over eight pairs
+  including the `0.5%` → `0.005` trap, canonical round-trips for `Percentage` and
+  `LocalDate`, `compareTo` as a total order, and — for `EffectiveDated` — every entry being
+  in effect on its own start date, plus **order independence**, which pins the claim that the
+  type sorts its own entries and was otherwise untested. A failing property reports what
+  broke rather than "false". The `allocate` invariants stay listed above and arrive with
+  `Money`. Seen to fail: comparing day before month turned `prop-date-order` red in C# alone,
+  with the message `2010-01-02 does not sort before 2010-02-01`.*
 - ✓ **3.2 — a `run-vector` CLI per language.** Thin by design: read the dataset, execute
   each case, report what it got. No assertions, no test framework, and it ignores any
   expected values in the file — which is what stops a runner grading its own work. An
@@ -214,11 +223,31 @@ the rational parse rather than money math, so the harness is shaped on an easy c
   rejection is recorded as a bare `true`, never the message: each language words its own,
   and pinning the text would make a reworded error a breaking change.
 - ✓ **3.4 — wired into CI** as a `conform` job.
-- [ ] **3.5 — collapse `csharp` and `ts` into a `strategy.matrix`.** They finally share a
-  command. Exact toolchain pinning lands in the same pass (see *Rooms*), because from here a
-  runtime-library version can move a result rather than just a compile.
+- ✓ **3.5 — resolved, and both halves of it changed shape.**
 
-**Checkpoint reached.** Conformance runs in CI across both languages over every dataset in
+  **The matrix is dropped, not deferred.** Its premise — "they finally share a command" —
+  turned out false. `csharp` runs `dotnet build` behind `setup-dotnet`; `ts` runs
+  `npm ci && tsc` behind `setup-node`. The vector runner never merged them; it created a
+  *third* job, `conform`, which is where the two languages actually meet and is one job
+  already. A matrix over the compile jobs would need a condition on every step, deduplicate
+  nothing, and blur which target failed.
+
+  **Exact toolchain pinning is re-aimed at its real trigger.** "The conformance runner
+  landed" was necessary but not sufficient: an exact pin guards a *runtime-dependent result*,
+  and f8n has none. Every parser is a character walk, every format is invariant-culture, the
+  arithmetic is big-integer — the dependency a pin would guard has been engineered out rather
+  than pinned around, which is the stronger form of the same guarantee. The trigger is the
+  first behaviour that reads the runtime's locale data, which is **l10n's formatting**, where
+  ICU is the subject rather than an accident. Pin exactly then, in the job that measures it.
+
+  *Verified rather than assumed: the full dataset was re-run under `LC_ALL=tr_TR.UTF-8` and
+  `de_DE.UTF-8` with an offset `TZ`, and every case held in both languages. Recorded as a
+  **technique**, not a stage — it cannot fail today, and a test that cannot fail reads as
+  coverage it does not provide. One latent dependency did turn up while checking and is
+  fixed: `LocalDate.ToString` interpolated, which uses `CurrentCulture`, where `Percentage`
+  had been explicitly invariant throughout.*
+
+**Phase 3 complete.** Conformance runs in CI across both languages over every dataset in
 `f8n/vectors/` — found by glob, not listed, since a vector file nobody runs is worse than
 none. And the net **has now been seen to fail**: replacing the Gregorian leap rule with a
 naive `year % 4` turned `leap-century-not-400` red in C# while TS stayed green, naming the
@@ -241,16 +270,32 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
 - **`tree<T>`, `fromJson`, validation emit, contract identity, rule identity** — designed
   and consumer-driven; l10n and portfolio pull these in, not f8n.
 - **Swift, and any third target.**
-- [ ] **Exact toolchain pinning in CI** — *outstanding*. The target jobs currently ask only
-  *does it compile*, and a feature band (`10.0.x`, `22.x`) answers that. Once vectors run,
-  the toolchain version becomes part of the result — a runtime-library bump can move
-  formatted output, which is why `DESIGN.md` files pinning under **correctness, not
-  hygiene**. **Do it in the same pass as Phase 3.4**, not before: pinning exactly while
-  nothing tests behaviour buys nothing and rots into manual bumps. Go needs
-  nothing — `go-version-file` already defers to `go.mod`, which cannot drift from the module
-  it builds.
+- **Exact toolchain pinning in CI** — *deferred to l10n, with the trigger corrected*.
+  `DESIGN.md` files pinning under **correctness, not hygiene**, and that is right: what makes
+  it correctness is a result the runtime can move. f8n has no such result — character-walk
+  parsers, invariant formatting, big-integer arithmetic — so the guarantee is held by
+  construction rather than by a version number, and an exact pin would rot into manual bumps
+  (Dependabot manages the action SHAs, not these inputs) while guarding nothing. The trigger
+  is **l10n's locale formatting**, where ICU is the subject; pin exactly there, in the job
+  that measures it. Go needs nothing either way — `go-version-file` already defers to
+  `go.mod`, which cannot drift from the module it builds.
 
 ## Change log
+- 2026-08-26: **Phase 3 closed — properties landed, and 3.5 resolved by being wrong.**
+  Properties assert what holds for every input, so the expected value comes from the rule
+  rather than from an implementation, which is the independent derivation path a captured
+  vector cannot provide. Eight percent/proportion pairs, round-trips, `compareTo` as a total
+  order, and `EffectiveDated`'s order-independence — the last pinning a claim nothing else
+  tested. Seen to fail, like the leap rule before it. **3.5's matrix was dropped rather than
+  deferred:** its premise was that the vector runner would give the two compile jobs a shared
+  command, and it did not — it created a third job where the languages actually meet, while
+  the compile jobs still run different commands behind different setup actions. **Exact
+  toolchain pinning was re-aimed:** the trigger is not "vectors exist" but "a result the
+  runtime can move", and f8n deliberately has none, so the guarantee is held by construction.
+  Confirmed under hostile locales, and recorded as a technique rather than a CI stage because
+  it cannot currently fail. One real fix fell out of checking: `LocalDate.ToString` was
+  interpolated and so `CurrentCulture`-sensitive, where `Percentage` had been invariant
+  throughout.
 - 2026-08-26: **2.4b done, and Phase 2 with it.** `LocalDate`, `EffectiveDated<T>` and
   `TaxRate` hand-written in both languages; `data/tax/gb-vat.yaml` generates, compiles and
   typechecks. Two new conformance surfaces, both pinned by vectors: the ISO 8601 date

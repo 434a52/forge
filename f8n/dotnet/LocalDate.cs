@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace F8n;
 
 /// <summary>
@@ -146,9 +148,18 @@ public readonly struct LocalDate : IEquatable<LocalDate>, IComparable<LocalDate>
     }
 
     /// <summary>The canonical form — always ten characters, so it round-trips through Parse.</summary>
+    /// <remarks>
+    /// Formatted against the invariant culture explicitly, as <see cref="Percentage"/> is. An
+    /// interpolated string uses <c>CurrentCulture</c>, which makes the output a function of
+    /// the machine it ran on — the one property a canonical wire form cannot have. In practice
+    /// an integer format does not substitute digits, so this changes no byte today; it is here
+    /// so that staying correct does not depend on that continuing to be true.
+    /// </remarks>
     public override string ToString()
     {
-        return $"{Year:D4}-{Month:D2}-{Day:D2}";
+        return Year.ToString("D4", CultureInfo.InvariantCulture)
+            + "-" + Month.ToString("D2", CultureInfo.InvariantCulture)
+            + "-" + Day.ToString("D2", CultureInfo.InvariantCulture);
     }
 
     /// <summary>Chronological order.</summary>

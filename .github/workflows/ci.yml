@@ -14,8 +14,11 @@
 # the first one three times.
 #
 # Per c5n/DESIGN.md there are two checks per target — "compiles?" and "conforms?" — and
-# both now exist. What is left is collapsing `csharp` and `ts` into one `strategy.matrix`:
-# with the vector runner landed they finally share a command (c5n/PLAN.md → 3.5).
+# both now exist. The `conform` job is where the two languages meet, and it is one job
+# already; the compile jobs stay separate because they genuinely do not share a command
+# (`dotnet build` against `npm ci && tsc`, behind different setup actions). A matrix over
+# them would need a condition on every step and would blur which target failed, so it was
+# considered and dropped rather than deferred — see c5n/PLAN.md → 3.5.
 #
 # Actions are pinned to commit SHAs, not tags: a tag can be moved, and build-time tooling
 # is the highest-risk supply-chain surface (llm/synced/design-rigour.md). Updates to those
@@ -67,11 +70,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # Feature band. An exact pin is what DESIGN.md asks for, and it became
-          # load-bearing when the conformance runner landed: from here a runtime-library
-          # bump can move a *result*, not merely a compile, and an ICU bump can move
-          # formatted output. So the trigger has fired and the task is outstanding rather
-          # than waiting — c5n/PLAN.md → Rooms pairs it with the matrix collapse at 3.5.
+          # Feature band, deliberately. An exact pin guards against a runtime-library bump
+          # moving a *result*, and f8n has no result that a bump can move: every parser is a
+          # character walk, every format is invariant-culture, and the arithmetic is on big
+          # integers. The dependency an exact pin would guard has been engineered out rather
+          # than pinned around, which is the stronger version of the same guarantee.
+          #
+          # The real trigger is the first behaviour that reads the runtime's locale data —
+          # l10n's formatting, where ICU *is* the subject. Pin exactly then, in the job that
+          # measures it. See c5n/PLAN.md → Rooms.
           dotnet-version: '10.0.x'
 
       - name: dotnet build
@@ -124,9 +131,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Feature band, matching the .NET pin in the csharp job above. What actually fixes the TypeScript
-          # version is the committed lockfile plus `npm ci`; Node's own version barely
-          # touches tsc's output, so an exact pin here would rot for no gain today.
+          # Feature band, matching the .NET pin in the csharp job above and for the same
+          # reason. What actually fixes the TypeScript version is the committed lockfile plus
+          # `npm ci`; Node's own version barely touches tsc's output.
           node-version: '22.x'
 
       # `npm ci` installs strictly from the committed lockfile — a locked install, not a

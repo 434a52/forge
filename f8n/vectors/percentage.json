@@ -310,6 +310,134 @@
           "error": true
         }
       ]
+    },
+    {
+      "rule": "properties — invariants that must hold for every input, so the expected value is \"true\" and it comes from the rule rather than from any implementation. That is what makes these the independent derivation path: a value captured from one language, and blessed by another written against the capture, would still satisfy a bulk vector and would not satisfy these. A failing property reports what broke rather than \"false\".",
+      "cases": [
+        {
+          "id": "prop-pct-whole",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "20",
+            "0.2"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-pct-fraction",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "17.5",
+            "0.175"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-pct-five",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "5",
+            "0.05"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-pct-sub-one",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "0.5",
+            "0.005"
+          ],
+          "out": "true",
+          "note": "Half a percent is 0.005, not 0.5. The pair a data author is most likely to get wrong by a factor of a hundred, which is why the unit is named at the construction site."
+        },
+        {
+          "id": "prop-pct-hundred",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "100",
+            "1"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-pct-zero",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "0",
+            "0"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-pct-negative",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "-17.5",
+            "-0.175"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-pct-two-dp",
+          "op": "property.percentMatchesProportion",
+          "in": [
+            "4.52",
+            "0.0452"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-roundtrip-whole",
+          "op": "property.roundTrip",
+          "in": [
+            "20"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-roundtrip-fraction",
+          "op": "property.roundTrip",
+          "in": [
+            "17.5"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-roundtrip-zero",
+          "op": "property.roundTrip",
+          "in": [
+            "0"
+          ],
+          "out": "true",
+          "note": "Zero canonicalises to 0/1 and must stay there."
+        },
+        {
+          "id": "prop-roundtrip-negative",
+          "op": "property.roundTrip",
+          "in": [
+            "-17.5"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-roundtrip-integer",
+          "op": "property.roundTrip",
+          "in": [
+            "100"
+          ],
+          "out": "true",
+          "note": "An integer keeps its /1 rather than losing the denominator."
+        },
+        {
+          "id": "prop-roundtrip-recurring",
+          "op": "property.roundTrip",
+          "in": [
+            "33.3333"
+          ],
+          "out": "true"
+        }
+      ]
     }
   ]
 }
