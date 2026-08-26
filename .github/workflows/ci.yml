@@ -1,18 +1,21 @@
-# CI — the four gates that were, until now, a person remembering to run four commands.
+# CI — the gates that were, until now, a person remembering to run each command by hand.
 #
-# The work splits cleanly in two, and the two halves answer different questions:
+# Four jobs answering three questions:
 #
 #   engine   — do the *sources* still produce the committed generated output?
 #              (go test + `c5n check`, the drift-guard)
 #   csharp   \  do the *committed* generated files still compile, in each target?
 #   ts       /  (one job per target toolchain)
+#   conform  — do both languages agree with one language-neutral vector dataset?
+#              (cmd/conform driving each language's run-vector CLI)
 #
-# They are deliberately independent, not chained: a drift failure and a compile failure
-# are different diagnoses, and seeing both at once beats seeing the first one twice.
+# They are deliberately independent, not chained: a drift failure, a compile failure and a
+# conformance failure are three different diagnoses, and seeing them together beats seeing
+# the first one three times.
 #
-# Per c5n/DESIGN.md there are two checks per target — "compiles?" and "conforms?". Only
-# the first exists today; the vector runner is a deferred room. When it lands, the two
-# target jobs collapse into one `strategy.matrix` (they will finally share a command).
+# Per c5n/DESIGN.md there are two checks per target — "compiles?" and "conforms?" — and
+# both now exist. What is left is collapsing `csharp` and `ts` into one `strategy.matrix`:
+# with the vector runner landed they finally share a command (c5n/PLAN.md → 3.5).
 #
 # Actions are pinned to commit SHAs, not tags: a tag can be moved, and build-time tooling
 # is the highest-risk supply-chain surface (llm/synced/design-rigour.md). Updates to those
@@ -20,7 +23,7 @@
 # pinning safe rather than merely frozen.
 #
 # Toolchain versions are pinned only as tightly as today's checks justify; tightening them
-# is a tracked task (c5n/c5n.plan.md → Rooms).
+# is a tracked task (c5n/PLAN.md → Rooms).
 
 name: ci
 
@@ -64,10 +67,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # Feature band. An exact pin is what DESIGN.md asks for, and it becomes
-          # load-bearing once behaviour is under test — an ICU bump can move formatted
-          # output — but a compile-only check does not need it. Tracked as an outstanding
-          # task in c5n/c5n.plan.md → Rooms; it lands with the conformance runner.
+          # Feature band. An exact pin is what DESIGN.md asks for, and it became
+          # load-bearing when the conformance runner landed: from here a runtime-library
+          # bump can move a *result*, not merely a compile, and an ICU bump can move
+          # formatted output. So the trigger has fired and the task is outstanding rather
+          # than waiting — c5n/PLAN.md → Rooms pairs it with the matrix collapse at 3.5.
           dotnet-version: '10.0.x'
 
       - name: dotnet build
@@ -116,7 +120,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Feature band, matching the .NET pin below. What actually fixes the TypeScript
+          # Feature band, matching the .NET pin in the csharp job above. What actually fixes the TypeScript
           # version is the committed lockfile plus `npm ci`; Node's own version barely
           # touches tsc's output, so an exact pin here would rot for no gain today.
           node-version: '22.x'
