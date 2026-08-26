@@ -51,6 +51,9 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 	if err := Validate(schema, tables); err != nil {
 		return nil, nil, err
 	}
+	// After validation, never before: a mistake in `common:` is then reported against
+	// `common:` once, rather than against each row it would have been copied into.
+	MergeCommon(tables)
 	schemaSrc := strings.Join(schemaPaths, " + ")
 
 	// Deterministic target order so output (and logs) don't depend on map iteration.

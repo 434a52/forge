@@ -112,9 +112,17 @@ compiling.
   resolver keeps one reference spelling, and the TS runtime value *is* the token C#
   serialises. Landed in f8n as `TaxType` and `TaxCategory`, generated with no data file
   referencing them yet — which is the emission path being exercised, not a placeholder.
-- [ ] **2.3 — `common:`-hoisting.** Merge `common ⊕ row` at the data layer; emitted output is
-  identical to writing every field out. A reader change with no emitter change — third
-  because 2.1 and 2.2 settle what a row is.
+- ✓ **2.3 — `common:`-hoisting.** Any field constant across a collection lifts to `common:`;
+  each row carries only what varies. **No emitter change** — the merge happens before any
+  writer sees a row, and the output is identical to writing every field out, which is the
+  whole claim and so is pinned byte-for-byte against a written-out twin. Three rules decided
+  with it: a row that also sets a hoisted field is an **error, not a cascade** (the
+  post-agent inversion — leniency was a trade against human keystrokes, and an agent expands
+  the rows for free, so only the ambiguity is left; it is also the reversible direction);
+  **hoisting the identity is rejected**, since a key varies by definition; and the **merge
+  runs after validation**, so a mistake in `common:` is reported once against `common:`
+  rather than once per row it was copied into. No f8n data uses it until 2.4 — a consequence
+  of the ordering, so it is covered by engine tests until the series arrives.
 - [ ] **2.4 — `EffectiveDated<T>`.** The second collection kind. The envelope/value split is
   driven by the declared type — a row's `from:` is the envelope *because the type said so*,
   and a missing or wrong key is a validation error, never a guess. Needs a hand-written
@@ -218,6 +226,13 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   it builds.
 
 ## Change log
+- 2026-08-26: **2.3 done — `common:`-hoisting, overlap rejected.** The equivalence is the
+  feature, so the test generates a hoisted file and a written-out twin and compares the
+  output byte-for-byte in both targets. The design call is recorded in `DESIGN.md`: a row
+  overriding a hoisted field errors rather than cascading, on the post-agent reasoning that
+  an ergonomic leniency trades against human keystrokes and an agent expands rows for free.
+  Merging moved *after* validation so a mistake in `common:` names `common:` once, and
+  reference resolution now runs through one shared helper for a row and for `common:` alike.
 - 2026-08-26: **2.2 done — enums, with members declared rather than drawn from data.** The
   structural half is that an enum is the first unit generated from the **schema alone**, so
   `generate` now runs a schema pass before the data pass and the output-path rule moved to

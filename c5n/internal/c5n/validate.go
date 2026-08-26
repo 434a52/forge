@@ -31,6 +31,7 @@ func Validate(schema Schema, tables []*Table) error {
 			continue
 		}
 		problems = append(problems, undeclaredFields(t, typ)...)
+		problems = append(problems, commonConflicts(t, typ)...)
 	}
 
 	index, duplicates := buildKeyIndex(schema, tables)
@@ -75,6 +76,18 @@ func undeclaredFields(t *Table, typ *Type) []string {
 	}
 
 	var problems []string
+
+	// `common:` is checked here and once. Its fields are copied into every row before any
+	// writer runs, so checking after the merge would report a single mistake once per row
+	// and name none of them as the place it was actually written.
+	for _, name := range sortedFieldNames(t.Common) {
+		if !declared[name] {
+			problems = append(problems, fmt.Sprintf(
+				"%s, common: field %q is not declared on %s (declared: %s)",
+				t.Source, name, typ.Name, declaredList(typ)))
+		}
+	}
+
 	for i, row := range t.Rows {
 		var undeclared []string
 		for name := range row {
@@ -189,38 +202,110 @@ func unresolvedReferences(schema Schema, tables []*Table, index keyIndex) []stri
 		if !ok {
 			continue
 		}
+
+		// Declaration order throughout, so a row with several bad references reads top to
+		// bottom. `common:` is resolved once, ahead of the rows it will be copied into.
+		for _, f := range typ.Fields {
+			value, ok := t.Common[f.Name]
+			if !ok {
+				continue
+			}
+			if p := referenceProblem(schema, index, f, value, t.Source+", common"); p != "" {
+				problems = append(problems, p)
+			}
+		}
+
 		for i, row := range t.Rows {
-			// Declaration order, so a row with several bad references reads top to bottom.
+			where := fmt.Sprintf("%s, %s", t.Source, rowLabel(row, typ, i))
 			for _, f := range typ.Fields {
-				refType, ok := schema[f.Type]
-				if !ok || !isReference(f.Type, schema) {
-					continue
-				}
 				value, ok := row[f.Name]
 				if !ok {
 					continue // a missing field is the writers' error, at the point they need it
 				}
-
-				if refType.IsEnum() {
-					if refType.DeclaresMember(value) {
-						continue
-					}
-					// The members are listed in full, unlike a table's identities: an enum
-					// holds a handful of terms, so the list is the answer rather than a wall
-					// of keys burying it.
-					problems = append(problems, fmt.Sprintf(
-						"%s, %s: field %q names %s member %q, which the enum does not declare (declared: %s)",
-						t.Source, rowLabel(row, typ, i), f.Name, refType.Name, value, strings.Join(refType.Members, ", ")))
-					continue
+				if p := referenceProblem(schema, index, f, value, where); p != "" {
+					problems = append(problems, p)
 				}
-
-				if _, known := index[f.Type][value]; known {
-					continue
-				}
-				problems = append(problems, fmt.Sprintf(
-					"%s, %s: field %q references %s %q, which no row declares (%s)",
-					t.Source, rowLabel(row, typ, i), f.Name, f.Type, value, declaringSources(index, f.Type)))
 			}
+		}
+	}
+	return problems
+}
+
+// referenceProblem returns a message when a reference-typed field's value names nothing
+// that exists, or "" when it resolves. One copy of the rules, called for a row and for
+// `common:` alike, so the two cannot drift apart on what counts as resolvable.
+func referenceProblem(schema Schema, index keyIndex, f Field, value, where string) string {
+	refType, ok := schema[f.Type]
+	if !ok || !isReference(f.Type, schema) {
+		return ""
+	}
+	if refType.IsEnum() {
+		if refType.DeclaresMember(value) {
+			return ""
+		}
+		// The members are listed in full, unlike a table's identities: an enum holds a
+		// handful of terms, so the list is the answer rather than a wall of keys burying it.
+		return fmt.Sprintf("%s: field %q names %s member %q, which the enum does not declare (declared: %s)",
+			where, f.Name, refType.Name, value, strings.Join(refType.Members, ", "))
+	}
+	if _, known := index[f.Type][value]; known {
+		return ""
+	}
+	return fmt.Sprintf("%s: field %q references %s %q, which no row declares (%s)",
+		where, f.Name, f.Type, value, declaringSources(index, f.Type))
+}
+
+// sortedFieldNames lists a row's field names in a stable order. A Row is a map, and Go
+// randomises map iteration — error output that reorders between runs is output nobody can
+// diff against the last one.
+func sortedFieldNames(row Row) []string {
+	names := make([]string, 0, len(row))
+	for name := range row {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// commonConflicts reports the two ways `common:` and the rows under it can contradict each
+// other. Both are errors rather than a resolution rule, and that is a deliberate reversal
+// of the pre-agent default.
+//
+// A cascade — row wins — is the conventional choice, and it was the right one when the cost
+// of rejecting a file was a person retyping the rows by hand. That cost is now close to
+// zero, so leniency keeps the ambiguity and buys nothing: `common:` reads as authoritative,
+// which is exactly what makes a row quietly differing from it invisible in review. The rule
+// is also the reversible one — relaxing it later breaks no existing data, and tightening it
+// later would.
+//
+// If a genuine "constant except here" case ever turns up, that is a *defaults* feature and
+// gets added deliberately. It is a different thing from constant, and it should not arrive
+// by accident as the side effect of a merge rule.
+func commonConflicts(t *Table, typ *Type) []string {
+	if len(t.Common) == 0 {
+		return nil
+	}
+	var problems []string
+
+	// An identity cannot be constant across a collection — being different per row is what
+	// makes it an identity. Caught here rather than left to the merge, where it would
+	// surface as every row claiming the same name.
+	if typ.Key != "" {
+		if _, hoisted := t.Common[typ.Key]; hoisted {
+			problems = append(problems, fmt.Sprintf(
+				"%s, common: %q is the identity field of %s, so it varies by definition and cannot be hoisted",
+				t.Source, typ.Key, typ.Name))
+		}
+	}
+
+	for i, row := range t.Rows {
+		for _, name := range sortedFieldNames(row) {
+			if _, hoisted := t.Common[name]; !hoisted {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s, %s: field %q is set in both common: and the row — common: is for what is constant across every row, so a field that varies belongs in the rows",
+				t.Source, rowLabel(row, typ, i), name))
 		}
 	}
 	return problems

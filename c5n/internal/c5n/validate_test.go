@@ -268,3 +268,72 @@ func TestDeclaredEnumMemberIsAccepted(t *testing.T) {
 		t.Fatalf("want a clean run, got: %v", err)
 	}
 }
+
+// levyTable is a keyed table with a hoistable field, for the `common:` checks below.
+func levyTable() Schema {
+	return Schema{"Levy": &Type{
+		Name: "Levy", External: true, Key: "code",
+		Fields: []Field{
+			{Name: "code", Type: "string"},
+			{Name: "jurisdiction", Type: "string"},
+			{Name: "numeric", Type: "int"},
+		},
+	}}
+}
+
+func validateLevies(t *testing.T, src string) error {
+	t.Helper()
+	tbl := mustTable(t, src)
+	tbl.Source = "data/levies.yaml"
+	return Validate(levyTable(), []*Table{tbl})
+}
+
+// A row setting a field that `common:` also sets is an error, not a cascade. Override is
+// the silent option: `common:` reads as authoritative, so a row quietly differing from it
+// is invisible in review — and with the cost of expanding the rows now near zero, leniency
+// keeps the ambiguity and buys nothing.
+func TestRowOverridingCommonIsRejected(t *testing.T) {
+	err := validateLevies(t, "type: table<Levy>\ncommon: { jurisdiction: GB }\nitems:\n"+
+		"  - { code: STD, jurisdiction: IE, numeric: 20 }\n")
+	if err == nil {
+		t.Fatal("want an error for a row overriding common, got nil")
+	}
+	for _, want := range []string{"data/levies.yaml", "row 1 (STD)", `"jurisdiction"`, "common:"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error is missing %q:\n%s", want, err)
+		}
+	}
+}
+
+// Hoisting the identity is rejected at the declaration rather than left to the merge, where
+// it would surface as every row claiming the same name — several confusing errors standing
+// in for one clear one.
+func TestHoistingTheIdentityIsRejected(t *testing.T) {
+	err := validateLevies(t, "type: table<Levy>\ncommon: { code: STD }\nitems:\n"+
+		"  - { jurisdiction: GB, numeric: 20 }\n")
+	if err == nil {
+		t.Fatal("want an error for hoisting the key field, got nil")
+	}
+	if !strings.Contains(err.Error(), "identity field") {
+		t.Errorf("want the identity named as the reason:\n%s", err)
+	}
+}
+
+// A hoisted field is still a field: it is checked against the schema and, where it is a
+// reference, resolved — once, against `common:` rather than against every row.
+func TestUnresolvedReferenceInCommonIsRejected(t *testing.T) {
+	schema := levySchema()
+	tbl := mustTable(t, "type: table<Levy>\ncommon: { taxType: Vat }\nitems:\n  - { code: STD }\n")
+	tbl.Source = "data/levies.yaml"
+
+	err := Validate(schema, []*Table{tbl})
+	if err == nil {
+		t.Fatal("want an error for the undeclared member in common, got nil")
+	}
+	if !strings.Contains(err.Error(), "common: field \"taxType\"") {
+		t.Errorf("want the problem named against common:\n%s", err)
+	}
+	if n := strings.Count(err.Error(), `"Vat"`); n != 1 {
+		t.Errorf("want it reported once, got %d times:\n%s", n, err)
+	}
+}

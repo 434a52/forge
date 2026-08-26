@@ -185,3 +185,70 @@ func TestEnumEmitsWithoutAnyData(t *testing.T) {
 		t.Errorf("header should name the schema and no data file:\n%s", cs)
 	}
 }
+
+const levySchemaSrc = "Levy:\n" +
+	"  external: true\n" +
+	"  key: code\n" +
+	"  fields: { code: string, jurisdiction: string, numeric: int }\n"
+
+// The whole claim of `common:`-hoisting is that it changes the data file and nothing else.
+// So the test is not "does it merge" but "is the output the same as writing every field
+// out" — byte-for-byte, both targets. Anything less and hoisting would be a decision an
+// author has to weigh rather than a free convenience.
+func TestCommonHoistingEmitsIdenticalOutput(t *testing.T) {
+	hoisted := fixtureWithSchema(t, levySchemaSrc, map[string]string{
+		"levies.yaml": "type: table<Levy>\ncommon: { jurisdiction: GB }\nitems:\n" +
+			"  - { code: STD, numeric: 20 }\n  - { code: RED, numeric: 5 }\n",
+	})
+	written := fixtureWithSchema(t, levySchemaSrc, map[string]string{
+		"levies.yaml": "type: table<Levy>\nitems:\n" +
+			"  - { code: STD, jurisdiction: GB, numeric: 20 }\n" +
+			"  - { code: RED, jurisdiction: GB, numeric: 5 }\n",
+	})
+
+	got, _, err := generate(hoisted)
+	if err != nil {
+		t.Fatalf("generate (hoisted): %v", err)
+	}
+	want, _, err := generate(written)
+	if err != nil {
+		t.Fatalf("generate (written out): %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("different file counts: %v vs %v", paths(got), paths(want))
+	}
+	byRel := map[string]string{}
+	for _, f := range want {
+		byRel[f.Rel] = f.Content
+	}
+	for _, f := range got {
+		if byRel[f.Rel] != f.Content {
+			t.Errorf("%s differs when hoisted:\n--- hoisted ---\n%s\n--- written out ---\n%s",
+				f.Rel, f.Content, byRel[f.Rel])
+		}
+	}
+}
+
+// Merging has to happen after validation, not in the reader. A misspelled field in
+// `common:` is copied into every row, so merging first would report one mistake once per
+// row and name `common:` in none of them — the 1.2 failure again, one layer up.
+func TestCommonMistakeIsReportedOnceAgainstCommon(t *testing.T) {
+	dir := fixtureWithSchema(t, levySchemaSrc, map[string]string{
+		"levies.yaml": "type: table<Levy>\ncommon: { jurisdicton: GB }\nitems:\n" +
+			"  - { code: STD, jurisdiction: GB, numeric: 20 }\n" +
+			"  - { code: RED, jurisdiction: GB, numeric: 5 }\n",
+	})
+
+	_, _, err := generate(dir)
+	if err == nil {
+		t.Fatal("want an error for the misspelled common field, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "common: field \"jurisdicton\"") {
+		t.Errorf("the mistake must be named against common:\n%s", msg)
+	}
+	if n := strings.Count(msg, "jurisdicton"); n != 1 {
+		t.Errorf("want the mistake reported once, got %d times:\n%s", n, msg)
+	}
+}

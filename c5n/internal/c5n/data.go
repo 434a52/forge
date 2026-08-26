@@ -10,9 +10,14 @@ import (
 )
 
 // Table is one data collection bound to a schema type: `type: table<Currency>` + rows.
+//
+// Common holds the fields hoisted out of every row (`common:`). It is kept separate from
+// the rows here and merged in later, after validation, so that a mistake in it is reported
+// once against `common:` rather than once per row it was copied into.
 type Table struct {
 	Kind     string // "table", "list", "tree", "EffectiveDated"
 	ElemType string // e.g. "Currency"
+	Common   Row    // fields constant across every row; nil when the file declares none
 	Rows     []Row
 	Source   string // the data file it came from (relative to root; for headers)
 }
@@ -72,10 +77,16 @@ func parseDataDoc(doc *yaml.Node) (*Table, error) {
 				return nil, fmt.Errorf("bad type %q (want kind<Elem>)", val.Value)
 			}
 			t.Kind, t.ElemType = m[1], m[2]
+		case "common":
+			common, err := parseRow(val)
+			if err != nil {
+				return nil, fmt.Errorf("common: %w", err)
+			}
+			t.Common = common
 		case "items":
 			items = val
 		default:
-			return nil, fmt.Errorf("unknown key %q (want `type` or `items`)", key)
+			return nil, fmt.Errorf("unknown key %q (want `type`, `common` or `items`)", key)
 		}
 	}
 	if t.Kind == "" {
@@ -115,4 +126,25 @@ func parseRow(node *yaml.Node) (Row, error) {
 		row[key.Value] = val.Value
 	}
 	return row, nil
+}
+
+// MergeCommon copies each table's hoisted fields into every row, so that everything
+// downstream sees complete rows and the emitted output is identical to a file that wrote
+// every field out. Purely an authoring affordance: nothing past this point knows it happened.
+//
+// It runs *after* validation, which is what lets a mistake in `common:` be reported against
+// `common:` — once — instead of appearing in every row it was copied into and being reported
+// against each of them. Validation has already rejected an overlap between the two, so this
+// never overwrites a value a row set for itself.
+func MergeCommon(tables []*Table) {
+	for _, t := range tables {
+		if len(t.Common) == 0 {
+			continue
+		}
+		for _, row := range t.Rows {
+			for field, value := range t.Common {
+				row[field] = value
+			}
+		}
+	}
 }
