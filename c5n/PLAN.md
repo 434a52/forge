@@ -121,7 +121,7 @@ and the whole point of building it now is to have it *while* the conformance-cri
 behaviour is written rather than retrofitted around it. The first vectors are deliberately
 the rational parse rather than money math, so the harness is shaped on an easy case.
 
-- [ ] **3.1 — the vector format, and what it targets.** A language-neutral file of
+- ✓ **3.1 — the vector format, and what it targets.** A language-neutral file of
   input → expected. A **published contract from the first vector**, since third-party runners
   read it; JSON rather than YAML, so a runner needs no parser dependency in either language.
 
@@ -149,6 +149,18 @@ the rational parse rather than money math, so the harness is shaped on an easy c
   **Standing rule:** an implementation is written from the rule, **never from the dataset**.
   That is what keeps captured values audited — an independently-written TS turns a captured
   C# slip red. Generate the TS implementation from the vectors and that check is gone.
+
+  *Landed as `f8n/vectors/percentage.json` — 35 cases, 15 of them rejections. Two of the four
+  kinds are exercised so far (bulk and reject); no transcribed authority example exists yet,
+  since `Percentage` has no external authority to transcribe from — the first will arrive with
+  a rate or a format grammar.*
+- [ ] **3.1b — properties.** Invariants asserted in both languages, carrying no expected value
+  and so depending on no implementation: `sum(allocate(m, rule)) == m`,
+  `allocate(−m) == −allocate(m)`, `FromPercent("17.5") == FromProportion("0.175")`,
+  `parse(canonical(x)) == x`. Several are already stated as invariants in `../f8n/DESIGN.md`
+  and sit there unused. They catch classes of error a captured vector cannot, because they do
+  not encode a value — and they are the *independent derivation path*, which is the thing
+  capturing from C# does not give us.
 - ✓ **3.2 — a `run-vector` CLI per language.** Thin by design: read the dataset, execute
   each case, report what it got. No assertions, no test framework, and it ignores any
   expected values in the file — which is what stops a runner grading its own work. An
