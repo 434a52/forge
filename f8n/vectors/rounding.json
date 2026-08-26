@@ -1,0 +1,347 @@
+{
+  "version": 1,
+  "subject": "f8n.Rounding",
+  "groups": [
+    {
+      "rule": "divide — the one function the cross-language claim collapses onto. Everything else in f8n's arithmetic is exact integer work that cannot diverge; this is the single place a result is *chosen*. Inputs are numerator, denominator, mode.",
+      "cases": [
+        {
+          "id": "exact",
+          "op": "divide",
+          "in": [
+            "4",
+            "2",
+            "HalfEven"
+          ],
+          "out": "2"
+        },
+        {
+          "id": "exact-zero",
+          "op": "divide",
+          "in": [
+            "0",
+            "5",
+            "HalfEven"
+          ],
+          "out": "0"
+        },
+        {
+          "id": "below-half",
+          "op": "divide",
+          "in": [
+            "1",
+            "3",
+            "HalfEven"
+          ],
+          "out": "0"
+        },
+        {
+          "id": "above-half",
+          "op": "divide",
+          "in": [
+            "2",
+            "3",
+            "HalfEven"
+          ],
+          "out": "1"
+        },
+        {
+          "id": "below-half-neg",
+          "op": "divide",
+          "in": [
+            "-1",
+            "3",
+            "HalfEven"
+          ],
+          "out": "0"
+        },
+        {
+          "id": "above-half-neg",
+          "op": "divide",
+          "in": [
+            "-2",
+            "3",
+            "HalfEven"
+          ],
+          "out": "-1"
+        },
+        {
+          "id": "negative-denominator",
+          "op": "divide",
+          "in": [
+            "5",
+            "-2",
+            "HalfEven"
+          ],
+          "note": "The sign normalises onto the numerator, so a negative divisor is not a separate case.",
+          "out": "-2"
+        },
+        {
+          "id": "both-negative",
+          "op": "divide",
+          "in": [
+            "-5",
+            "-2",
+            "HalfEven"
+          ],
+          "out": "2"
+        }
+      ]
+    },
+    {
+      "rule": "HalfEven at an exact half — to the even result. This is the default mode, and every case here is one where HalfUp gives a different answer.",
+      "cases": [
+        {
+          "id": "even-half-down-to-even",
+          "op": "divide",
+          "in": [
+            "5",
+            "2",
+            "HalfEven"
+          ],
+          "note": "2.5 to even is 2.",
+          "out": "2"
+        },
+        {
+          "id": "even-half-up-to-even",
+          "op": "divide",
+          "in": [
+            "3",
+            "2",
+            "HalfEven"
+          ],
+          "note": "1.5 to even is 2.",
+          "out": "2"
+        },
+        {
+          "id": "even-half-seven",
+          "op": "divide",
+          "in": [
+            "7",
+            "2",
+            "HalfEven"
+          ],
+          "note": "3.5 to even is 4.",
+          "out": "4"
+        },
+        {
+          "id": "even-half-tiny",
+          "op": "divide",
+          "in": [
+            "1",
+            "2",
+            "HalfEven"
+          ],
+          "note": "0.5 to even is 0 — zero is even.",
+          "out": "0"
+        },
+        {
+          "id": "even-half-neg",
+          "op": "divide",
+          "in": [
+            "-5",
+            "2",
+            "HalfEven"
+          ],
+          "out": "-2"
+        },
+        {
+          "id": "even-half-neg-up",
+          "op": "divide",
+          "in": [
+            "-3",
+            "2",
+            "HalfEven"
+          ],
+          "out": "-2"
+        },
+        {
+          "id": "even-half-neg-tiny",
+          "op": "divide",
+          "in": [
+            "-1",
+            "2",
+            "HalfEven"
+          ],
+          "note": "Not -0: the quotient is an integer and zero is unsigned.",
+          "out": "0"
+        }
+      ]
+    },
+    {
+      "rule": "HalfUp at an exact half — away from zero. Settled 2026-08-26: away-from-zero rather than toward-positive-infinity, so HalfUp is sign-symmetric like HalfEven and like allocate, giving the library one answer for negatives. It is also what HALF_UP names in every library that uses the term; toward-+inf is JavaScript's Math.round, which is a language accident and not a contract.",
+      "cases": [
+        {
+          "id": "up-half",
+          "op": "divide",
+          "in": [
+            "5",
+            "2",
+            "HalfUp"
+          ],
+          "out": "3"
+        },
+        {
+          "id": "up-half-small",
+          "op": "divide",
+          "in": [
+            "3",
+            "2",
+            "HalfUp"
+          ],
+          "out": "2"
+        },
+        {
+          "id": "up-half-tiny",
+          "op": "divide",
+          "in": [
+            "1",
+            "2",
+            "HalfUp"
+          ],
+          "out": "1"
+        },
+        {
+          "id": "up-half-neg",
+          "op": "divide",
+          "in": [
+            "-5",
+            "2",
+            "HalfUp"
+          ],
+          "note": "Away from zero. Toward-+inf would give -2, and that is the decision this case pins.",
+          "out": "-3"
+        },
+        {
+          "id": "up-half-neg-small",
+          "op": "divide",
+          "in": [
+            "-3",
+            "2",
+            "HalfUp"
+          ],
+          "out": "-2"
+        },
+        {
+          "id": "up-half-neg-tiny",
+          "op": "divide",
+          "in": [
+            "-1",
+            "2",
+            "HalfUp"
+          ],
+          "out": "-1"
+        },
+        {
+          "id": "up-below-half",
+          "op": "divide",
+          "in": [
+            "1",
+            "3",
+            "HalfUp"
+          ],
+          "note": "HalfUp only differs at an exact half.",
+          "out": "0"
+        }
+      ]
+    },
+    {
+      "rule": "beyond float64 — the reason the intermediates are big integers. Every value here is exact as an integer and wrong the moment it passes through a double.",
+      "cases": [
+        {
+          "id": "past-2-53",
+          "op": "divide",
+          "in": [
+            "9007199254740993",
+            "2",
+            "HalfUp"
+          ],
+          "note": "2^53 + 1. A float64 cannot represent the numerator, so an implementation that touches one produces 4503599627370496 here.",
+          "out": "4503599627370497"
+        },
+        {
+          "id": "past-2-53-even",
+          "op": "divide",
+          "in": [
+            "9007199254740993",
+            "2",
+            "HalfEven"
+          ],
+          "note": "The same numerator, to even — and the pair only differs if the value survived intact.",
+          "out": "4503599627370496"
+        },
+        {
+          "id": "very-large",
+          "op": "divide",
+          "in": [
+            "1000000000000000000000000000001",
+            "3",
+            "HalfEven"
+          ],
+          "out": "333333333333333333333333333334"
+        }
+      ]
+    },
+    {
+      "rule": "rejected",
+      "cases": [
+        {
+          "id": "rej-zero-denominator",
+          "op": "divide",
+          "in": [
+            "1",
+            "0",
+            "HalfEven"
+          ],
+          "error": true
+        }
+      ]
+    },
+    {
+      "rule": "properties — invariants that must hold for every input, so the expected value is \"true\" and comes from the rule rather than from any implementation.",
+      "cases": [
+        {
+          "id": "prop-sign-symmetry-even",
+          "op": "property.signSymmetric",
+          "in": [
+            "5",
+            "2",
+            "HalfEven"
+          ],
+          "out": "true",
+          "note": "divide(-n, d) == -divide(n, d). The property the HalfUp decision was made to preserve, asserted for both modes."
+        },
+        {
+          "id": "prop-sign-symmetry-up",
+          "op": "property.signSymmetric",
+          "in": [
+            "5",
+            "2",
+            "HalfUp"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-sign-symmetry-third",
+          "op": "property.signSymmetric",
+          "in": [
+            "2",
+            "3",
+            "HalfUp"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-sign-symmetry-big",
+          "op": "property.signSymmetric",
+          "in": [
+            "9007199254740993",
+            "2",
+            "HalfEven"
+          ],
+          "out": "true"
+        }
+      ]
+    }
+  ]
+}

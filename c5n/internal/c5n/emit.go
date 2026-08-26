@@ -36,6 +36,15 @@ func scalarLiteral(declType, text, target string) (string, error) {
 		if _, err := strconv.ParseInt(text, 10, 64); err != nil {
 			return "", fmt.Errorf("expected int, got %q", text)
 		}
+		// A leading zero is rejected rather than emitted or quietly stripped. The literal is
+		// written verbatim into both targets, and `048` is a decimal 48 in C# but a syntax
+		// error in a TypeScript module — so one data file would compile in one language and
+		// not the other. It is also two spellings of one value, which is the thing this
+		// codebase refuses everywhere else. An author who wrote it almost certainly wanted
+		// the ISO *string* "048", and the schema should say so.
+		if len(text) > 1 && (text[0] == '0' || (len(text) > 2 && (text[0] == '-' || text[0] == '+') && text[1] == '0')) {
+			return "", fmt.Errorf("int %q has a leading zero — write %s, or declare the field as a string if the zero is significant", text, strings.TrimLeft(text, "+-0"))
+		}
 		return text, nil
 	case "decimal":
 		if !decimalLit.MatchString(text) {

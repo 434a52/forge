@@ -8,8 +8,12 @@
  */
 
 import { readFileSync } from "node:fs";
+import type { Currency } from "./currency.js";
 import { EffectiveDated } from "./effectivedated.js";
+import { BHD, EUR, GBP, JPY, USD } from "./generated/currency.data.js";
 import { LocalDate } from "./localdate.js";
+import { Money } from "./money.js";
+import { divideWithRounding, RoundingMode } from "./rounding.js";
 import { Percentage } from "./percentage.js";
 
 interface VectorCase {
@@ -45,7 +49,76 @@ const knownOperations = new Map<string, Set<string>>([
   ["f8n.EffectiveDated", new Set([
     "asOf", "property.asOfAtEachBoundary", "property.orderIndependence",
   ])],
+  ["f8n.Rounding", new Set(["divide", "property.signSymmetric"])],
+  ["f8n.Money", new Set([
+    "fromMajor", "fromMinor", "multiplyByRate", "divideBy",
+    "property.minorMatchesMajor", "property.addSubtractIsExact",
+  ])],
 ]);
+
+// The vectors name a currency by its code, and the currencies are generated — so this is
+// also the first place a vector run reaches c5n's output rather than only hand-written code.
+function lookupCurrency(code: string): Currency {
+  switch (code) {
+    case "GBP": return GBP;
+    case "EUR": return EUR;
+    case "USD": return USD;
+    case "JPY": return JPY;
+    case "BHD": return BHD;
+    default: throw new Error(`unknown currency ${code}`);
+  }
+}
+
+function parseMode(name: string): RoundingMode {
+  switch (name) {
+    case "HalfEven": return RoundingMode.HalfEven;
+    case "HalfUp": return RoundingMode.HalfUp;
+    default: throw new Error(`unknown rounding mode ${name}`);
+  }
+}
+
+/**
+ * divide(-n, d) == -divide(n, d). The property the HalfUp decision was made to preserve:
+ * away-from-zero keeps it, toward-positive-infinity does not.
+ */
+function signSymmetric(numerator: string, denominator: string, mode: string): string {
+  const n = BigInt(numerator);
+  const d = BigInt(denominator);
+  const m = parseMode(mode);
+
+  const positive = divideWithRounding(n, d, m);
+  const negated = divideWithRounding(-n, d, m);
+  if (negated !== -positive) {
+    return `${numerator}/${denominator} gave ${positive} but -${numerator}/${denominator} gave ${negated}`;
+  }
+  return "true";
+}
+
+/** The two constructors name different units for the same value, so they must agree. */
+function minorMatchesMajor(minor: string, major: string, code: string): string {
+  const currency = lookupCurrency(code);
+  const fromMinor = Money.fromMinor(BigInt(minor), currency);
+  const fromMajor = Money.fromMajor(major, currency);
+  if (!fromMinor.equals(fromMajor)) {
+    return `${minor} minor units is ${fromMinor.amount}, but the major form ${major} is ${fromMajor.amount}`;
+  }
+  return "true";
+}
+
+/**
+ * (a + b) - b == a. Addition is integer work on minor units, so it is exact by construction —
+ * and this is what says so rather than assuming it.
+ */
+function addSubtractIsExact(first: string, second: string, code: string): string {
+  const currency = lookupCurrency(code);
+  const a = Money.fromMajor(first, currency);
+  const b = Money.fromMajor(second, currency);
+  const roundTripped = a.add(b).subtract(b);
+  if (!roundTripped.equals(a)) {
+    return `(${first} + ${second}) - ${second} gave ${roundTripped.amount}, not ${first}`;
+  }
+  return "true";
+}
 
 // A series the vectors own, so they pin the lookup's semantics rather than f8n's tax data —
 // which will grow, and would take the expected values with it. Deliberately written oldest
@@ -181,6 +254,24 @@ function execute(subject: string, op: string, inputs: string[]): string {
       return asOfAtEachBoundary();
     case "f8n.EffectiveDated.property.orderIndependence":
       return orderIndependence();
+    case "f8n.Rounding.divide":
+      return divideWithRounding(BigInt(inputs[0]), BigInt(inputs[1]), parseMode(inputs[2])).toString();
+    case "f8n.Rounding.property.signSymmetric":
+      return signSymmetric(inputs[0], inputs[1], inputs[2]);
+    case "f8n.Money.fromMajor":
+      return Money.fromMajor(inputs[0], lookupCurrency(inputs[1])).amount;
+    case "f8n.Money.fromMinor":
+      return Money.fromMinor(BigInt(inputs[0]), lookupCurrency(inputs[1])).amount;
+    case "f8n.Money.multiplyByRate":
+      return Money.fromMajor(inputs[0], lookupCurrency(inputs[1]))
+        .multiplyByRate(Percentage.fromPercent(inputs[2]), parseMode(inputs[3])).amount;
+    case "f8n.Money.divideBy":
+      return Money.fromMajor(inputs[0], lookupCurrency(inputs[1]))
+        .divideBy(BigInt(inputs[2]), parseMode(inputs[3])).amount;
+    case "f8n.Money.property.minorMatchesMajor":
+      return minorMatchesMajor(inputs[0], inputs[1], inputs[2]);
+    case "f8n.Money.property.addSubtractIsExact":
+      return addSubtractIsExact(inputs[0], inputs[1], inputs[2]);
     default:
       throw new Error(`unknown op ${op} for ${subject}`);
   }

@@ -65,6 +65,11 @@ func TestScalarLiteral(t *testing.T) {
 		{name: "utf8 passes through", declType: "string", text: "£", target: "ts", want: `"£"`},
 		{name: "int", declType: "int", text: "826", target: "csharp", want: "826"},
 		{name: "int rejects text", declType: "int", text: "eight", target: "csharp", wantErr: true},
+		// 048 is decimal 48 in C# and a syntax error in a TypeScript module, so one data
+		// file would compile in one target and not the other.
+		{name: "int rejects leading zero", declType: "int", text: "048", target: "ts", wantErr: true},
+		{name: "int rejects negative leading zero", declType: "int", text: "-048", target: "ts", wantErr: true},
+		{name: "int allows a bare zero", declType: "int", text: "0", target: "ts", want: "0"},
 		{name: "decimal csharp suffix", declType: "decimal", text: "1.005", target: "csharp", want: "1.005m"},
 		{name: "decimal ts bare", declType: "decimal", text: "1.005", target: "ts", want: "1.005"},
 		{name: "decimal negative", declType: "decimal", text: "-0.5", target: "ts", want: "-0.5"},

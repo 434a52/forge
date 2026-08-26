@@ -9,4 +9,6 @@ public partial class Currency
     public static readonly Currency GBP = new Currency("GBP", 826, "Pound Sterling", "£", 2);
     public static readonly Currency EUR = new Currency("EUR", 978, "Euro", "€", 2);
     public static readonly Currency USD = new Currency("USD", 840, "US Dollar", "$", 2);
+    public static readonly Currency JPY = new Currency("JPY", 392, "Yen", "¥", 0);
+    public static readonly Currency BHD = new Currency("BHD", 48, "Bahraini Dinar", "BD", 3);
 }

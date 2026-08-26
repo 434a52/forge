@@ -6,3 +6,7 @@ items:
   - { code: GBP, numeric: 826, name: "Pound Sterling", symbol: "£", minorUnits: 2 }
   - { code: EUR, numeric: 978, name: "Euro",           symbol: "€", minorUnits: 2 }
   - { code: USD, numeric: 840, name: "US Dollar",      symbol: "$", minorUnits: 2 }
+  # The two scales that are not 2. Money's grammar is written to the currency's dp, so these
+  # are what stop "amount" quietly meaning "two decimal places" across the whole library.
+  - { code: JPY, numeric: 392, name: "Yen",            symbol: "¥", minorUnits: 0 }
+  - { code: BHD, numeric: 48,  name: "Bahraini Dinar", symbol: "BD", minorUnits: 3 }

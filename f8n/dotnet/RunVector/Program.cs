@@ -5,6 +5,8 @@
 // audit it the same way. This one reads the cases and ignores any expected values in the
 // file, which is what keeps it from grading its own work.
 
+using System.Globalization;
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using F8n;
@@ -31,7 +33,7 @@ catch (Exception ex)
 // another for a LocalDate. The subject names which type's vectors these are, so one runner
 // per language covers every f8n subject rather than one binary per type.
 var subject = document["subject"]?.GetValue<string>() ?? "";
-if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated"))
+if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated" or "f8n.Rounding" or "f8n.Money"))
 {
     Console.Error.WriteLine($"run-vector: unknown subject \"{subject}\"");
     return 2;
@@ -91,6 +93,14 @@ static bool IsKnownOperation(string subject, string op)
         ("f8n.LocalDate", "property.orderIsTotal") => true,
         ("f8n.EffectiveDated", "property.asOfAtEachBoundary") => true,
         ("f8n.EffectiveDated", "property.orderIndependence") => true,
+        ("f8n.Rounding", "divide") => true,
+        ("f8n.Rounding", "property.signSymmetric") => true,
+        ("f8n.Money", "fromMajor") => true,
+        ("f8n.Money", "fromMinor") => true,
+        ("f8n.Money", "multiplyByRate") => true,
+        ("f8n.Money", "divideBy") => true,
+        ("f8n.Money", "property.minorMatchesMajor") => true,
+        ("f8n.Money", "property.addSubtractIsExact") => true,
         _ => false,
     };
 }
@@ -121,6 +131,27 @@ static string Execute(string subject, string op, List<string> inputs)
             return Fixture.AsOfAtEachBoundary();
         case ("f8n.EffectiveDated", "property.orderIndependence"):
             return Fixture.OrderIndependence();
+        case ("f8n.Rounding", "divide"):
+            return Rounding.DivideWithRounding(
+                BigInteger.Parse(inputs[0], CultureInfo.InvariantCulture),
+                BigInteger.Parse(inputs[1], CultureInfo.InvariantCulture),
+                Modes.Parse(inputs[2])).ToString(CultureInfo.InvariantCulture);
+        case ("f8n.Rounding", "property.signSymmetric"):
+            return Property.SignSymmetric(inputs[0], inputs[1], inputs[2]);
+        case ("f8n.Money", "fromMajor"):
+            return Money.FromMajor(inputs[0], Currencies.Lookup(inputs[1])).Amount;
+        case ("f8n.Money", "fromMinor"):
+            return Money.FromMinor(BigInteger.Parse(inputs[0], CultureInfo.InvariantCulture), Currencies.Lookup(inputs[1])).Amount;
+        case ("f8n.Money", "multiplyByRate"):
+            return Money.FromMajor(inputs[0], Currencies.Lookup(inputs[1]))
+                .Multiply(Percentage.FromPercent(inputs[2]), Modes.Parse(inputs[3])).Amount;
+        case ("f8n.Money", "divideBy"):
+            return Money.FromMajor(inputs[0], Currencies.Lookup(inputs[1]))
+                .Divide(BigInteger.Parse(inputs[2], CultureInfo.InvariantCulture), Modes.Parse(inputs[3])).Amount;
+        case ("f8n.Money", "property.minorMatchesMajor"):
+            return Property.MinorMatchesMajor(inputs[0], inputs[1], inputs[2]);
+        case ("f8n.Money", "property.addSubtractIsExact"):
+            return Property.AddSubtractIsExact(inputs[0], inputs[1], inputs[2]);
         default:
             throw new InvalidOperationException($"unknown op {op} for {subject}");
     }
@@ -238,6 +269,51 @@ static class Property
 
     // A comparison is a total order: irreflexive-on-equal, antisymmetric, and transitive.
     // The dates arrive in ascending order and every pair and triple is checked.
+    // divide(-n, d) == -divide(n, d). The property the HalfUp decision was made to preserve:
+    // away-from-zero keeps it, toward-positive-infinity does not.
+    public static string SignSymmetric(string numerator, string denominator, string mode)
+    {
+        var n = BigInteger.Parse(numerator, CultureInfo.InvariantCulture);
+        var d = BigInteger.Parse(denominator, CultureInfo.InvariantCulture);
+        var m = Modes.Parse(mode);
+
+        var positive = Rounding.DivideWithRounding(n, d, m);
+        var negated = Rounding.DivideWithRounding(-n, d, m);
+        if (negated != -positive)
+        {
+            return $"{numerator}/{denominator} gave {positive} but -{numerator}/{denominator} gave {negated}";
+        }
+        return "true";
+    }
+
+    // The two constructors name different units for the same value, so they must agree.
+    public static string MinorMatchesMajor(string minor, string major, string code)
+    {
+        var currency = Currencies.Lookup(code);
+        var fromMinor = Money.FromMinor(BigInteger.Parse(minor, CultureInfo.InvariantCulture), currency);
+        var fromMajor = Money.FromMajor(major, currency);
+        if (!fromMinor.Equals(fromMajor))
+        {
+            return $"{minor} minor units is {fromMinor.Amount}, but the major form {major} is {fromMajor.Amount}";
+        }
+        return "true";
+    }
+
+    // (a + b) - b == a. Addition is integer work on minor units, so it is exact by
+    // construction — and this is what says so rather than assuming it.
+    public static string AddSubtractIsExact(string first, string second, string code)
+    {
+        var currency = Currencies.Lookup(code);
+        var a = Money.FromMajor(first, currency);
+        var b = Money.FromMajor(second, currency);
+        var roundTripped = a.Add(b).Subtract(b);
+        if (!roundTripped.Equals(a))
+        {
+            return $"({first} + {second}) - {second} gave {roundTripped.Amount}, not {first}";
+        }
+        return "true";
+    }
+
     public static string OrderIsTotal(List<string> ascending)
     {
         var dates = ascending.Select(LocalDate.Parse).ToArray();
@@ -260,5 +336,36 @@ static class Property
             }
         }
         return "true";
+    }
+}
+
+// The vectors name a currency by its code, and the currencies are generated — so this is
+// also the first place a vector run reaches c5n's output rather than only hand-written code.
+static class Currencies
+{
+    public static Currency Lookup(string code)
+    {
+        return code switch
+        {
+            "GBP" => Currency.GBP,
+            "EUR" => Currency.EUR,
+            "USD" => Currency.USD,
+            "JPY" => Currency.JPY,
+            "BHD" => Currency.BHD,
+            _ => throw new InvalidOperationException($"unknown currency {code}"),
+        };
+    }
+}
+
+static class Modes
+{
+    public static RoundingMode Parse(string name)
+    {
+        return name switch
+        {
+            "HalfEven" => RoundingMode.HalfEven,
+            "HalfUp" => RoundingMode.HalfUp,
+            _ => throw new InvalidOperationException($"unknown rounding mode {name}"),
+        };
     }
 }

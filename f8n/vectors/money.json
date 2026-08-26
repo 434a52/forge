@@ -1,0 +1,481 @@
+{
+  "version": 1,
+  "subject": "f8n.Money",
+  "groups": [
+    {
+      "rule": "fromMajor — the canonical wire form: exactly the currency's decimal places, zeros included. The output is the amount rendered back, so every accepting case is also a round-trip. Currencies: GBP 2 dp, JPY 0, BHD 3.",
+      "cases": [
+        {
+          "id": "major-gbp",
+          "op": "fromMajor",
+          "in": [
+            "12.34",
+            "GBP"
+          ],
+          "out": "12.34"
+        },
+        {
+          "id": "major-gbp-zero",
+          "op": "fromMajor",
+          "in": [
+            "0.00",
+            "GBP"
+          ],
+          "note": "\"0.00\" says money at two decimal places, where \"0\" says nothing.",
+          "out": "0.00"
+        },
+        {
+          "id": "major-gbp-negative",
+          "op": "fromMajor",
+          "in": [
+            "-12.34",
+            "GBP"
+          ],
+          "out": "-12.34"
+        },
+        {
+          "id": "major-gbp-trailing-zero",
+          "op": "fromMajor",
+          "in": [
+            "12.30",
+            "GBP"
+          ],
+          "out": "12.30"
+        },
+        {
+          "id": "major-jpy",
+          "op": "fromMajor",
+          "in": [
+            "1234",
+            "JPY"
+          ],
+          "note": "Zero decimal places — the scale is the currency's, not the library's.",
+          "out": "1234"
+        },
+        {
+          "id": "major-jpy-zero",
+          "op": "fromMajor",
+          "in": [
+            "0",
+            "JPY"
+          ],
+          "out": "0"
+        },
+        {
+          "id": "major-bhd",
+          "op": "fromMajor",
+          "in": [
+            "12.340",
+            "BHD"
+          ],
+          "note": "Three decimal places.",
+          "out": "12.340"
+        },
+        {
+          "id": "major-large",
+          "op": "fromMajor",
+          "in": [
+            "99999999999999999999.99",
+            "GBP"
+          ],
+          "note": "Past what a float64 holds.",
+          "out": "99999999999999999999.99"
+        }
+      ]
+    },
+    {
+      "rule": "fromMajor rejected — the grammar, taken from the table in f8n/DESIGN.md. Strict in both directions: a lenient parser lets two producers emit different bytes for one value and the contract quietly becomes a dialect.",
+      "cases": [
+        {
+          "id": "rej-short",
+          "op": "fromMajor",
+          "in": [
+            "12.3",
+            "GBP"
+          ],
+          "note": "Short; precision must be full.",
+          "error": true
+        },
+        {
+          "id": "rej-too-precise",
+          "op": "fromMajor",
+          "in": [
+            "12.345",
+            "GBP"
+          ],
+          "note": "Not representable at the currency's scale.",
+          "error": true
+        },
+        {
+          "id": "rej-plus",
+          "op": "fromMajor",
+          "in": [
+            "+12.34",
+            "GBP"
+          ],
+          "note": "One representation only — no leading +.",
+          "error": true
+        },
+        {
+          "id": "rej-leading-zero",
+          "op": "fromMajor",
+          "in": [
+            "012.34",
+            "GBP"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-no-integer-part",
+          "op": "fromMajor",
+          "in": [
+            ".34",
+            "GBP"
+          ],
+          "note": "Write \"0.34\".",
+          "error": true
+        },
+        {
+          "id": "rej-signed-zero",
+          "op": "fromMajor",
+          "in": [
+            "-0.00",
+            "GBP"
+          ],
+          "note": "A signed zero is not a second zero.",
+          "error": true
+        },
+        {
+          "id": "rej-grouping",
+          "op": "fromMajor",
+          "in": [
+            "1,234.56",
+            "GBP"
+          ],
+          "note": "Grouping is presentation, and presentation is l10n's.",
+          "error": true
+        },
+        {
+          "id": "rej-no-decimals",
+          "op": "fromMajor",
+          "in": [
+            "12",
+            "GBP"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-decimals-on-zero-dp",
+          "op": "fromMajor",
+          "in": [
+            "12.34",
+            "JPY"
+          ],
+          "note": "JPY has no minor unit.",
+          "error": true
+        },
+        {
+          "id": "rej-signed-zero-jpy",
+          "op": "fromMajor",
+          "in": [
+            "-0",
+            "JPY"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-empty",
+          "op": "fromMajor",
+          "in": [
+            "",
+            "GBP"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-trailing-space",
+          "op": "fromMajor",
+          "in": [
+            "12.34 ",
+            "GBP"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-comma-decimal",
+          "op": "fromMajor",
+          "in": [
+            "12,34",
+            "GBP"
+          ],
+          "note": "A comma decimal separator is a locale's, and locales are l10n's.",
+          "error": true
+        }
+      ]
+    },
+    {
+      "rule": "fromMinor — an amount as a count of minor units, rendered back in major units. The two constructors name their unit because a bare number cannot say which it is, and the factor between them is currency-dependent.",
+      "cases": [
+        {
+          "id": "minor-gbp",
+          "op": "fromMinor",
+          "in": [
+            "1234",
+            "GBP"
+          ],
+          "out": "12.34"
+        },
+        {
+          "id": "minor-gbp-sub-unit",
+          "op": "fromMinor",
+          "in": [
+            "5",
+            "GBP"
+          ],
+          "note": "Five pence, not five pounds — the ambiguity the named constructors remove.",
+          "out": "0.05"
+        },
+        {
+          "id": "minor-gbp-negative",
+          "op": "fromMinor",
+          "in": [
+            "-1234",
+            "GBP"
+          ],
+          "out": "-12.34"
+        },
+        {
+          "id": "minor-gbp-zero",
+          "op": "fromMinor",
+          "in": [
+            "0",
+            "GBP"
+          ],
+          "out": "0.00"
+        },
+        {
+          "id": "minor-jpy",
+          "op": "fromMinor",
+          "in": [
+            "1234",
+            "JPY"
+          ],
+          "note": "At zero dp the two units coincide.",
+          "out": "1234"
+        },
+        {
+          "id": "minor-bhd",
+          "op": "fromMinor",
+          "in": [
+            "1234",
+            "BHD"
+          ],
+          "note": "At three dp the same count is a thousandth of the GBP reading.",
+          "out": "1.234"
+        }
+      ]
+    },
+    {
+      "rule": "multiplyByRate — applies a proportion and lands back on the currency's dp, via the shared divide-with-rounding. Inputs are amount, currency, the percent number, and the mode.",
+      "cases": [
+        {
+          "id": "rate-clean",
+          "op": "multiplyByRate",
+          "in": [
+            "100.00",
+            "GBP",
+            "20",
+            "HalfEven"
+          ],
+          "out": "20.00"
+        },
+        {
+          "id": "rate-rounds-up",
+          "op": "multiplyByRate",
+          "in": [
+            "12.34",
+            "GBP",
+            "20",
+            "HalfEven"
+          ],
+          "note": "246.8 minor units.",
+          "out": "2.47"
+        },
+        {
+          "id": "rate-vat-17-5",
+          "op": "multiplyByRate",
+          "in": [
+            "100.00",
+            "GBP",
+            "17.5",
+            "HalfEven"
+          ],
+          "out": "17.50"
+        },
+        {
+          "id": "rate-half-to-even",
+          "op": "multiplyByRate",
+          "in": [
+            "0.01",
+            "GBP",
+            "50",
+            "HalfEven"
+          ],
+          "note": "Half a penny, to even, is nothing.",
+          "out": "0.00"
+        },
+        {
+          "id": "rate-half-up",
+          "op": "multiplyByRate",
+          "in": [
+            "0.01",
+            "GBP",
+            "50",
+            "HalfUp"
+          ],
+          "out": "0.01"
+        },
+        {
+          "id": "rate-half-up-negative",
+          "op": "multiplyByRate",
+          "in": [
+            "-0.01",
+            "GBP",
+            "50",
+            "HalfUp"
+          ],
+          "note": "Away from zero. The case that would read -0.00 under a toward-+inf HalfUp, and would then be rejected as an amount.",
+          "out": "-0.01"
+        },
+        {
+          "id": "rate-half-to-even-odd",
+          "op": "multiplyByRate",
+          "in": [
+            "0.03",
+            "GBP",
+            "50",
+            "HalfEven"
+          ],
+          "note": "1.5 minor units, to even, is 2.",
+          "out": "0.02"
+        }
+      ]
+    },
+    {
+      "rule": "divideBy — divides and lands back on the currency's dp. Does NOT conserve: this is the operation allocate exists to replace when the parts must sum to the whole.",
+      "cases": [
+        {
+          "id": "divide-thirds",
+          "op": "divideBy",
+          "in": [
+            "100.00",
+            "GBP",
+            "3",
+            "HalfEven"
+          ],
+          "note": "Three of these is 99.99, not 100.00 — which is exactly why splitting money is allocate's job and not this one.",
+          "out": "33.33"
+        },
+        {
+          "id": "divide-half-penny-even",
+          "op": "divideBy",
+          "in": [
+            "0.01",
+            "GBP",
+            "2",
+            "HalfEven"
+          ],
+          "out": "0.00"
+        },
+        {
+          "id": "divide-half-penny-up",
+          "op": "divideBy",
+          "in": [
+            "0.01",
+            "GBP",
+            "2",
+            "HalfUp"
+          ],
+          "out": "0.01"
+        },
+        {
+          "id": "divide-half-penny-up-neg",
+          "op": "divideBy",
+          "in": [
+            "-0.01",
+            "GBP",
+            "2",
+            "HalfUp"
+          ],
+          "out": "-0.01"
+        }
+      ]
+    },
+    {
+      "rule": "properties — invariants that must hold for every input, so the expected value is \"true\" and comes from the rule rather than from any implementation.",
+      "cases": [
+        {
+          "id": "prop-minor-matches-major",
+          "op": "property.minorMatchesMajor",
+          "in": [
+            "1234",
+            "12.34",
+            "GBP"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-minor-matches-major-jpy",
+          "op": "property.minorMatchesMajor",
+          "in": [
+            "1234",
+            "1234",
+            "JPY"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-minor-matches-major-bhd",
+          "op": "property.minorMatchesMajor",
+          "in": [
+            "1234",
+            "1.234",
+            "BHD"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-minor-matches-major-neg",
+          "op": "property.minorMatchesMajor",
+          "in": [
+            "-5",
+            "-0.05",
+            "GBP"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-add-subtract",
+          "op": "property.addSubtractIsExact",
+          "in": [
+            "12.34",
+            "99.99",
+            "GBP"
+          ],
+          "out": "true",
+          "note": "(a + b) - b == a. Addition is integer work on minor units, so it is exact by construction — and this is what says so."
+        },
+        {
+          "id": "prop-add-subtract-jpy",
+          "op": "property.addSubtractIsExact",
+          "in": [
+            "1234",
+            "7",
+            "JPY"
+          ],
+          "out": "true"
+        }
+      ]
+    }
+  ]
+}

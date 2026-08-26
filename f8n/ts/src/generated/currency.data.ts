@@ -5,3 +5,5 @@ import { Currency } from "../currency.js";
 export const GBP = new Currency("GBP", 826, "Pound Sterling", "£", 2);
 export const EUR = new Currency("EUR", 978, "Euro", "€", 2);
 export const USD = new Currency("USD", 840, "US Dollar", "$", 2);
+export const JPY = new Currency("JPY", 392, "Yen", "¥", 0);
+export const BHD = new Currency("BHD", 48, "Bahraini Dinar", "BD", 3);
