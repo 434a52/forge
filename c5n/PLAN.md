@@ -5,7 +5,7 @@ sequence and doubles as session handover — the next session starts at the firs
 step. Mark `✓` in place as steps land.
 
 **Where it stands:** `build` and `check` work end to end for `table<T>`, and f8n's
-Currency/Country slice is generated, committed, and green in all four gates. The engine
+Currency/Country slice is generated, committed, and green in every gate. The engine
 emits **all three value shapes** and **one of the four collection kinds**, and it now emits
 a type **body** (enums, from the schema alone) as well as instances of hand-written types.
 
@@ -227,7 +227,7 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   the member-normalisation open question, since the declared name is the name in C#, in TS
   and on the wire. TS emits a const object plus a union of its values rather than a TS
   `enum`, so a reference reads identically in both targets. f8n gained `TaxType` and
-  `TaxCategory`; all four gates green.
+  `TaxCategory`; every gate green, conformance included.
 - 2026-08-25: **Phase 3 is the vector dataset and its runners, not a prose spec** — and it
   runs alongside Phase 2 rather than after it. The separate specification is cut (see
   `DESIGN.md`): it was carrying weight only because the runner had been deferred, and it

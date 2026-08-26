@@ -62,7 +62,8 @@ If a rationale is genuinely about circumstance rather than engineering, the entr
 
 ## Build & test
 
-The four gates. `.github/workflows/ci.yml` runs exactly these on push and PR.
+The gates. `.github/workflows/ci.yml` runs exactly these on push and PR. Deliberately
+uncounted — the list grows, and a number in the prose is a thing that goes stale silently.
 
 - **c5n engine** — `cd c5n && go test ./...`
 - **drift-guard** — `cd c5n && go build -o "$TMPDIR/c5n" ./cmd/c5n && "$TMPDIR/c5n" check ../f8n`
@@ -70,3 +71,12 @@ The four gates. `.github/workflows/ci.yml` runs exactly these on push and PR.
   binary, which is why `/c5n/c5n` is gitignored. `c5n build ../f8n` regenerates.)
 - **C# target** — `cd f8n/dotnet && dotnet build`
 - **TS target** — `cd f8n/ts && npm ci && npm run typecheck`
+- **conformance** — both languages against one vector dataset. Needs the TS build first
+  (`cd f8n/ts && npm run build`), since the runner executes the compiled `dist/`:
+
+  ```
+  go build -o "$TMPDIR/conform" ./c5n/cmd/conform
+  "$TMPDIR/conform" -vectors f8n/vectors/percentage.json \
+    -runner "csharp=dotnet run --project f8n/dotnet/RunVector --" \
+    -runner "ts=node f8n/ts/dist/run-vector.js"
+  ```
