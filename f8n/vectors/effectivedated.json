@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "subject": "f8n.EffectiveDated",
+  "groups": [
+    {
+      "rule": "asOf — the value in effect on a given day. The runner builds a fixed two-entry series of its own (2010-01-01 -> \"A\", 2011-01-04 -> \"B\") rather than reading f8n's data, so these cases pin the lookup's semantics and stay true when the tax history is extended. A day the series does not cover is reported as \"(none)\": it is a defined outcome, not a rejected input, and encoding it as an error would conflate the two.",
+      "cases": [
+        {
+          "id": "asof-on-the-boundary",
+          "op": "asOf",
+          "in": [
+            "2011-01-04"
+          ],
+          "out": "B",
+          "note": "The rule the whole type turns on: a value effective FROM a date applies ON that date. Off by one here and every rate is wrong for exactly one day, in one language."
+        },
+        {
+          "id": "asof-after",
+          "op": "asOf",
+          "in": [
+            "2011-01-05"
+          ],
+          "out": "B"
+        },
+        {
+          "id": "asof-day-before",
+          "op": "asOf",
+          "in": [
+            "2011-01-03"
+          ],
+          "out": "A",
+          "note": "The other side of the same boundary — the previous entry is still in effect."
+        },
+        {
+          "id": "asof-earliest-boundary",
+          "op": "asOf",
+          "in": [
+            "2010-01-01"
+          ],
+          "out": "A",
+          "note": "Inclusive at the start of the series too."
+        },
+        {
+          "id": "asof-far-future",
+          "op": "asOf",
+          "in": [
+            "9999-12-31"
+          ],
+          "out": "B",
+          "note": "The newest entry stands indefinitely; the type never extrapolates past it."
+        },
+        {
+          "id": "asof-before-series",
+          "op": "asOf",
+          "in": [
+            "2009-12-31"
+          ],
+          "out": "(none)",
+          "note": "No answer, rather than the oldest known value. Returning \"A\" here would be a wrong number that looks like a right one."
+        }
+      ]
+    }
+  ]
+}

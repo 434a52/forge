@@ -36,3 +36,39 @@ TaxType:
 TaxCategory:
   kind: enum
   members: [Standard, Reduced, ZeroRated]   # the three GB VAT rate bands
+
+# Wrapper primitives — one field, so data authors the bare scalar and the recipe names what
+# it means. This is what keeps a bare number from carrying its unit in a comment: the unit is
+# stated once here, in a reviewed place, rather than on every row by every author.
+
+Percentage:
+  external: true
+  fields: { value: string }    # an exact Rational; the stored value is the proportion
+  emit:                        # data states the percent number the source document does
+    csharp: "Percentage.FromPercent({value})"
+    ts:     "Percentage.fromPercent({value})"
+
+LocalDate:
+  external: true
+  fields: { value: string }    # the ISO 8601 calendar date, YYYY-MM-DD, strict both ways
+  emit:
+    csharp: "LocalDate.Parse({value})"
+    ts:     "LocalDate.parse({value})"
+
+# A series: each entry carries an envelope alongside the value's own fields. The envelope is
+# declared here, which is what makes temporality *declared* rather than sniffed — an entry
+# without a `from` is an error naming this line, not a value quietly read as something else.
+
+EffectiveDated:
+  external: true
+  kind: series
+  envelope: { from: LocalDate }
+  emit:
+    csharp: "EffectiveDated.Of({entries})"
+    ts:     "EffectiveDated.of([{entries}])"
+
+TaxRate:
+  external: true
+  # No key: a rate is not an identity. What identifies a rate over time is the series it
+  # belongs to, which is named in the data file.
+  fields: { jurisdiction: Country, taxType: TaxType, category: TaxCategory, rate: Percentage }

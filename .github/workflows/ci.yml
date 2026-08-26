@@ -108,10 +108,14 @@ jobs:
         run: |
           go build -o "$RUNNER_TEMP/conform" ./cmd/conform
           cd ..
-          "$RUNNER_TEMP/conform" \
-            -vectors f8n/vectors/percentage.json \
-            -runner "csharp=dotnet run --project f8n/dotnet/RunVector --no-build --" \
-            -runner "ts=node f8n/ts/dist/run-vector.js"
+          # Every dataset, found rather than listed: a hardcoded list is one more place to
+          # forget, and a vector file nobody runs is worse than no vector file at all.
+          for vectors in f8n/vectors/*.json; do
+            "$RUNNER_TEMP/conform" \
+              -vectors "$vectors" \
+              -runner "csharp=dotnet run --project f8n/dotnet/RunVector --no-build --" \
+              -runner "ts=node f8n/ts/dist/run-vector.js"
+          done
 
   ts:
     name: ts (generated output typechecks)

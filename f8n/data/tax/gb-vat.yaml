@@ -1,0 +1,20 @@
+# UK VAT rates, as an effective-dated series per category.
+#
+# The invariant identity — which country, which tax, which band — is hoisted to `common:`,
+# so each row carries only the two things that vary: the date it took effect and the rate.
+# The rate is written as the source document states it (20, not 0.2); the schema's `emit:`
+# recipe names the unit, so the number here reads like the notice it was copied from.
+#
+# DELIBERATELY PARTIAL. These two entries are the ones worked through in c5n/DESIGN.md, and
+# the standard rate has a longer history than this (there were changes in 2008 and 1991,
+# among others). Extending it is a data task with an authority attached — the rates and the
+# dates come from the HMRC notice, not from here — and the series is correct-as-far-as-it-goes
+# rather than wrong in the meantime: an as-of lookup before the earliest entry has no answer
+# and says so, instead of returning a rate that did not apply.
+
+VatStandard:
+  type: EffectiveDated<TaxRate>
+  common: { jurisdiction: GBR, taxType: VAT, category: Standard }
+  items:
+    - { from: 2011-01-04, rate: 20 }
+    - { from: 2010-01-01, rate: 17.5 }

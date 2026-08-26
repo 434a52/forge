@@ -1,0 +1,248 @@
+{
+  "version": 1,
+  "subject": "f8n.LocalDate",
+  "groups": [
+    {
+      "rule": "parse — the ISO 8601 calendar date, complete representation in extended format (YYYY-MM-DD). Authority: ISO 8601. f8n accepts this form and no other, so the value round-trips: parse(canonical(x)) == x.",
+      "cases": [
+        {
+          "id": "date-ordinary",
+          "op": "parse",
+          "in": [
+            "2011-01-04"
+          ],
+          "note": "The day the UK standard VAT rate rose to 20% — the worked example in c5n/DESIGN.md.",
+          "out": "2011-01-04"
+        },
+        {
+          "id": "date-year-start",
+          "op": "parse",
+          "in": [
+            "2010-01-01"
+          ],
+          "out": "2010-01-01"
+        },
+        {
+          "id": "date-year-end",
+          "op": "parse",
+          "in": [
+            "2011-12-31"
+          ],
+          "out": "2011-12-31"
+        },
+        {
+          "id": "date-min",
+          "op": "parse",
+          "in": [
+            "0001-01-01"
+          ],
+          "note": "Lower bound of f8n's range.",
+          "out": "0001-01-01"
+        },
+        {
+          "id": "date-max",
+          "op": "parse",
+          "in": [
+            "9999-12-31"
+          ],
+          "note": "Upper bound of f8n's range.",
+          "out": "9999-12-31"
+        }
+      ]
+    },
+    {
+      "rule": "leap years — the Gregorian rule at its three edges: every fourth year, except centuries, except every fourth century. The three cases below are what separate the rule from a naive year % 4.",
+      "cases": [
+        {
+          "id": "leap-ordinary",
+          "op": "parse",
+          "in": [
+            "2024-02-29"
+          ],
+          "note": "Divisible by 4 — a leap year.",
+          "out": "2024-02-29"
+        },
+        {
+          "id": "leap-century-400",
+          "op": "parse",
+          "in": [
+            "2000-02-29"
+          ],
+          "note": "Divisible by 400 — a leap year. A year % 4 rule gets this right by accident and the next one wrong.",
+          "out": "2000-02-29"
+        },
+        {
+          "id": "leap-century-not-400",
+          "op": "parse",
+          "in": [
+            "1900-02-29"
+          ],
+          "note": "Divisible by 100 but not 400 — NOT a leap year. This is the case a naive rule fails.",
+          "error": true
+        },
+        {
+          "id": "leap-not-divisible",
+          "op": "parse",
+          "in": [
+            "2011-02-29"
+          ],
+          "note": "2011 is not divisible by 4.",
+          "error": true
+        }
+      ]
+    },
+    {
+      "rule": "rejected — the grammar. ISO 8601's extended format fixes the field widths and the separator, so anything else is a different representation of the same day, and accepting it would give one value two encodings. Strict in both directions, as the wire format requires.",
+      "cases": [
+        {
+          "id": "rej-unpadded",
+          "op": "parse",
+          "in": [
+            "2011-1-4"
+          ],
+          "note": "Fields are fixed-width; a short field is wrong, not merely terse.",
+          "error": true
+        },
+        {
+          "id": "rej-basic-format",
+          "op": "parse",
+          "in": [
+            "20110104"
+          ],
+          "note": "The basic format. f8n's subset is the extended format only.",
+          "error": true
+        },
+        {
+          "id": "rej-wrong-separator",
+          "op": "parse",
+          "in": [
+            "2011/01/04"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-with-time",
+          "op": "parse",
+          "in": [
+            "2011-01-04T00:00:00"
+          ],
+          "note": "A date is a day, not an instant.",
+          "error": true
+        },
+        {
+          "id": "rej-signed",
+          "op": "parse",
+          "in": [
+            "+2011-01-04"
+          ],
+          "note": "The expanded representation, which ISO 8601 permits only by agreement.",
+          "error": true
+        },
+        {
+          "id": "rej-leading-space",
+          "op": "parse",
+          "in": [
+            " 2011-01-04"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-trailing-space",
+          "op": "parse",
+          "in": [
+            "2011-01-04 "
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-empty",
+          "op": "parse",
+          "in": [
+            ""
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-too-long",
+          "op": "parse",
+          "in": [
+            "2011-01-041"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-non-digit",
+          "op": "parse",
+          "in": [
+            "2011-01-0a"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-arabic-indic-digits",
+          "op": "parse",
+          "in": [
+            "٢٠١١-٠١-٠٤"
+          ],
+          "note": "Arabic-Indic digits for 2011-01-04. C# char.IsDigit accepts these and JavaScript's \\d does not, so a parser written the obvious way in each language would disagree here. Both must reject.",
+          "error": true
+        }
+      ]
+    },
+    {
+      "rule": "rejected — not a real day. The grammar is satisfied but the calendar is not, and a date that does not exist must not be silently moved to one that does.",
+      "cases": [
+        {
+          "id": "rej-month-zero",
+          "op": "parse",
+          "in": [
+            "2011-00-01"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-month-13",
+          "op": "parse",
+          "in": [
+            "2011-13-01"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-day-zero",
+          "op": "parse",
+          "in": [
+            "2011-01-00"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-day-32",
+          "op": "parse",
+          "in": [
+            "2011-01-32"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-short-month",
+          "op": "parse",
+          "in": [
+            "2011-04-31"
+          ],
+          "note": "April has 30 days.",
+          "error": true
+        },
+        {
+          "id": "rej-year-zero",
+          "op": "parse",
+          "in": [
+            "0000-01-01"
+          ],
+          "note": "ISO 8601 defines year 0000 only in the expanded representation, by agreement. f8n's range starts at 0001.",
+          "error": true
+        }
+      ]
+    }
+  ]
+}

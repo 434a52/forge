@@ -76,7 +76,9 @@ uncounted — the list grows, and a number in the prose is a thing that goes sta
 
   ```
   go build -o "$TMPDIR/conform" ./c5n/cmd/conform
-  "$TMPDIR/conform" -vectors f8n/vectors/percentage.json \
-    -runner "csharp=dotnet run --project f8n/dotnet/RunVector --" \
-    -runner "ts=node f8n/ts/dist/run-vector.js"
+  for v in f8n/vectors/*.json; do
+    "$TMPDIR/conform" -vectors "$v" \
+      -runner "csharp=dotnet run --project f8n/dotnet/RunVector --" \
+      -runner "ts=node f8n/ts/dist/run-vector.js"
+  done
   ```

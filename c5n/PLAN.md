@@ -6,10 +6,12 @@ step. Mark `✓` in place as steps land.
 
 **Where it stands:** `build` and `check` work end to end for `table<T>`, and f8n's
 Currency/Country slice is generated, committed, and green in every gate. The engine
-emits **all three value shapes** and **two of the four collection kinds**, and it now emits
-a type **body** (enums, from the schema alone) as well as instances of hand-written types.
-The tax slice generates exactly as designed; what it still needs is the f8n runtime types
-its output constructs (2.4b).
+emits **all three value shapes** and **two of the four collection kinds**, and it emits a
+type **body** (enums, from the schema alone) as well as instances of hand-written types.
+**Phase 2 is complete** — the UK VAT series is generated, committed and compiling in both
+targets. Three vector datasets (67 cases) run in CI across both languages, and the net has
+been seen to fail: a deliberately naive leap-year rule turned `localdate` red in C# while TS
+stayed green.
 
 ## Phase 0 — bootstrap ✓
 
@@ -136,16 +138,22 @@ compiling.
   the reserved `{entries}`; the **envelope cannot be hoisted** to `common:`. **No new scalar
   was needed** — the date is an external type with a parse recipe, so the temporal design
   stays in f8n.
-- [ ] **2.4b — the f8n half.** Three hand-written types in C# and TS, then the data:
-  `LocalDate` (the ISO-8601 subset, strict, both languages accepting and rejecting
-  identically — a conformance surface, so vectors with it), `EffectiveDated<T>` (minimal
-  as-of lookup only), and `TaxRate`. Then `data/tax/gb-vat.yaml` generates, compiles and
-  typechecks, and the tax slice is real.
+- ✓ **2.4b — the f8n half.** `LocalDate`, `EffectiveDated<T>` and `TaxRate`, hand-written in
+  both languages, and `data/tax/gb-vat.yaml` generating, compiling and typechecking. Two
+  conformance surfaces came with them and both are pinned: **`LocalDate.parse`** — the ISO
+  8601 calendar date, character-walked rather than regexed, 26 cases of which 19 are
+  rejections, including Arabic-Indic digits, which `char.IsDigit` accepts and JavaScript's
+  `\d` does not (the obvious implementation in each language disagrees there); and
+  **`EffectiveDated.asOf`** — the inclusive boundary, where being off by one makes every rate
+  wrong for exactly one day in one language. The runner now dispatches on the vector file's
+  `subject`, so one runner per language covers every f8n type instead of one binary each.
+  Deliberately partial: the VAT series carries the two entries the design worked through,
+  not the full history, which is a data task with an authority attached.
 
-**Checkpoint:** `gb-vat.yaml` generates, compiles and typechecks in both targets, drift-guard
-green. The engine reaches this at 2.4a — the scratch project proves the exact output the
-design specifies, in both languages — and f8n reaches it at 2.4b, once the three
-hand-written types exist for the generated code to construct.
+**Checkpoint reached.** `gb-vat.yaml` generates, compiles and typechecks in both targets,
+drift-guard green, and 67 vector cases across three datasets agree in both languages. Phase 2
+is done: the tax slice is real, and every capability it needed — nested constructors, enums,
+`common:`-hoisting, the series — is exercised by committed data rather than by tests alone.
 
 ## Phase 3 — the vector dataset and its runners
 
@@ -210,9 +218,11 @@ the rational parse rather than money math, so the harness is shaped on an easy c
   command. Exact toolchain pinning lands in the same pass (see *Rooms*), because from here a
   runtime-library version can move a result rather than just a compile.
 
-**Checkpoint:** `Percentage.FromPercent` conformance runs in CI across both languages from
-one dataset — and changing a digit in the C# implementation turns the run red. A parity net
-that has never been seen to fail is not yet a parity net.
+**Checkpoint reached.** Conformance runs in CI across both languages over every dataset in
+`f8n/vectors/` — found by glob, not listed, since a vector file nobody runs is worse than
+none. And the net **has now been seen to fail**: replacing the Gregorian leap rule with a
+naive `year % 4` turned `leap-century-not-400` red in C# while TS stayed green, naming the
+case and reporting wanted-versus-got. That was the outstanding condition on this checkpoint.
 
 ## Rooms — deferred, additive, no rework
 
@@ -241,6 +251,15 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   it builds.
 
 ## Change log
+- 2026-08-26: **2.4b done, and Phase 2 with it.** `LocalDate`, `EffectiveDated<T>` and
+  `TaxRate` hand-written in both languages; `data/tax/gb-vat.yaml` generates, compiles and
+  typechecks. Two new conformance surfaces, both pinned by vectors: the ISO 8601 date
+  grammar (26 cases, 19 rejections) and the as-of boundary (6). The runner now dispatches on
+  the vector file's `subject`, so one runner per language serves every type rather than one
+  binary each, and CI globs `f8n/vectors/*.json` rather than naming files. **Phase 3's
+  checkpoint is also reached:** the parity net was deliberately broken — a naive `year % 4`
+  leap rule — and turned red in C# alone, which is the condition that checkpoint had been
+  carrying unmet.
 - 2026-08-26: **2.4 split into engine and f8n halves; 2.4a done.** The engine now reads and
   emits `EffectiveDated<T>` exactly as the design specifies, verified against a scratch
   project in both targets. Splitting it was the consequence of one decision: the envelope's
