@@ -30,8 +30,10 @@ func Validate(schema Schema, tables []*Table) error {
 			problems = append(problems, fmt.Sprintf("%s: unknown type %s", t.Source, t.ElemType))
 			continue
 		}
-		problems = append(problems, undeclaredFields(t, typ)...)
-		problems = append(problems, commonConflicts(t, typ)...)
+		series := seriesType(schema, t)
+		problems = append(problems, undeclaredFields(t, typ, series)...)
+		problems = append(problems, missingEnvelope(t, typ, series)...)
+		problems = append(problems, commonConflicts(t, typ, series)...)
 	}
 
 	index, duplicates := buildKeyIndex(schema, tables)
@@ -69,9 +71,15 @@ func Validate(schema Schema, tables []*Table) error {
 // *collection* declares (`from`), which is not a field of `T`. That exemption belongs
 // here, driven by the declared collection kind — not by a general escape hatch, which
 // would give back the silence this check removes.
-func undeclaredFields(t *Table, typ *Type) []string {
-	declared := make(map[string]bool, len(typ.Fields))
+func undeclaredFields(t *Table, typ *Type, series *Type) []string {
+	declared := make(map[string]bool, len(typ.Fields)+len(envelopeOf(series)))
 	for _, f := range typ.Fields {
+		declared[f.Name] = true
+	}
+	// A series entry carries the envelope the *collection* declares alongside the fields of
+	// the value it wraps. Those are declared too — by a different declaration, which is why
+	// they have to be added here rather than being an exemption.
+	for _, f := range envelopeOf(series) {
 		declared[f.Name] = true
 	}
 
@@ -205,7 +213,7 @@ func unresolvedReferences(schema Schema, tables []*Table, index keyIndex) []stri
 
 		// Declaration order throughout, so a row with several bad references reads top to
 		// bottom. `common:` is resolved once, ahead of the rows it will be copied into.
-		for _, f := range typ.Fields {
+		for _, f := range collectionFields(schema, t, typ) {
 			value, ok := t.Common[f.Name]
 			if !ok {
 				continue
@@ -217,7 +225,7 @@ func unresolvedReferences(schema Schema, tables []*Table, index keyIndex) []stri
 
 		for i, row := range t.Rows {
 			where := fmt.Sprintf("%s, %s", t.Source, rowLabel(row, typ, i))
-			for _, f := range typ.Fields {
+			for _, f := range collectionFields(schema, t, typ) {
 				value, ok := row[f.Name]
 				if !ok {
 					continue // a missing field is the writers' error, at the point they need it
@@ -281,11 +289,21 @@ func sortedFieldNames(row Row) []string {
 // If a genuine "constant except here" case ever turns up, that is a *defaults* feature and
 // gets added deliberately. It is a different thing from constant, and it should not arrive
 // by accident as the side effect of a merge rule.
-func commonConflicts(t *Table, typ *Type) []string {
+func commonConflicts(t *Table, typ *Type, series *Type) []string {
 	if len(t.Common) == 0 {
 		return nil
 	}
 	var problems []string
+
+	// An envelope varies per entry for the same reason an identity does — a series whose
+	// every entry took effect on one date is not a series.
+	for _, f := range envelopeOf(series) {
+		if _, hoisted := t.Common[f.Name]; hoisted {
+			problems = append(problems, fmt.Sprintf(
+				"%s, common: %q is the envelope of %s, so it varies per entry and cannot be hoisted",
+				t.Source, f.Name, series.Name))
+		}
+	}
 
 	// An identity cannot be constant across a collection — being different per row is what
 	// makes it an identity. Caught here rather than left to the merge, where it would
@@ -328,4 +346,64 @@ func declaringSources(index keyIndex, typeName string) string {
 	}
 	sort.Strings(sources) // the index is a map; the message must not reorder between runs
 	return typeName + " rows come from " + strings.Join(sources, ", ")
+}
+
+// seriesType returns the declared series type behind a collection's kind, or nil when the
+// kind is a built-in collection (table, list, tree). A `type: EffectiveDated<TaxRate>` names
+// two types: the series that keys the entries, and the value each entry constructs.
+func seriesType(schema Schema, t *Table) *Type {
+	kind, ok := schema[t.Kind]
+	if !ok || !kind.IsSeries() {
+		return nil
+	}
+	return kind
+}
+
+// envelopeOf is the series' envelope fields, or none for a built-in collection. A helper
+// rather than a nil check at every call site, since most checks treat the two the same.
+func envelopeOf(series *Type) []Field {
+	if series == nil {
+		return nil
+	}
+	return series.Envelope
+}
+
+// collectionFields is every field an entry carries: the envelope first, then the value's
+// own, both in declaration order. Envelope first because that is the order they are read
+// in — what keys this entry, then what it holds.
+func collectionFields(schema Schema, t *Table, typ *Type) []Field {
+	series := seriesType(schema, t)
+	if series == nil {
+		return typ.Fields
+	}
+	fields := make([]Field, 0, len(series.Envelope)+len(typ.Fields))
+	fields = append(fields, series.Envelope...)
+	return append(fields, typ.Fields...)
+}
+
+// missingEnvelope reports a series entry that does not carry what the series says keys it.
+//
+// This is where "temporality is declared, never sniffed" is actually enforced. A row's
+// `from:` is the envelope because the type said so, so an entry that omits it — or spells
+// it differently — is an error naming the declaration, never a value c5n quietly treats as
+// an ordinary field.
+func missingEnvelope(t *Table, typ *Type, series *Type) []string {
+	if series == nil {
+		return nil
+	}
+	var problems []string
+	for i, row := range t.Rows {
+		for _, f := range series.Envelope {
+			if _, ok := row[f.Name]; ok {
+				continue
+			}
+			if _, hoisted := t.Common[f.Name]; hoisted {
+				continue // reported by commonConflicts, which names the better mistake
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s, %s: no %q field, and %s declares it as the envelope that keys an entry",
+				t.Source, rowLabel(row, typ, i), f.Name, series.Name))
+		}
+	}
+	return problems
 }

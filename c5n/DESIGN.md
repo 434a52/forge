@@ -176,6 +176,87 @@ A small fixed set of collection kinds, selected by the declared `type:`:
 
 **"Is it a time series?" = "did you declare `EffectiveDated`?"** — nothing in the data file signals it. `EffectiveDated`'s *type declaration* names its key field (`from`), so a row's `from:` is the envelope **because the type said so**; a row that omits it or uses a wrong key is a **validation error**, not a guess. The envelope/value split (which fields key the series vs. construct the `T`) is entirely driven by the declared type. (`EffectiveDated<Key,Value>` is an external f8n runtime type — see `../f8n/data-lookups.md`.)
 
+### Series — the envelope is declared by the type, and the unit is the series
+`EffectiveDated<T>` is the first collection kind that is not a plain list of values: each
+entry carries an **envelope** — the date it takes effect from — alongside the fields that
+construct the `T`. Four things follow, and none of them is temporal: c5n never learns what a
+date is, or that a series keys on a field called `from`.
+
+**The envelope is declared, in the schema, on the series type.** A series is `kind: series`
+with an `envelope:`, and c5n reads the split from that declaration:
+
+```yaml
+EffectiveDated:
+  external: true            # hand-written f8n runtime type; c5n constructs, never emits
+  kind: series
+  envelope: { from: LocalDate }         # what keys an entry; the rest construct the T
+  emit:
+    csharp: "EffectiveDated.Of({entries})"
+    ts:     "EffectiveDated.of([{entries}])"
+```
+
+This is what "**temporality is declared, never sniffed**" actually means in the
+implementation: a row's `from:` is the envelope *because the type said so*, and an entry
+that omits it is a validation error naming the declaration — never a value quietly absorbed
+as one of `T`'s own fields. Building the field name into c5n would have been shorter and
+would have made the engine know a thing about time.
+
+**A data file holds several named collections.** A file of tax rates carries many
+`EffectiveDated<TaxRate>` series, so "the TaxRate one" does not identify anything — the
+series needs a name, and the name is what the output unit is called (`VatStandard.g.cs`, not
+`TaxRate.g.cs`). A table needs no name, since one type is one unit however many files feed
+it. `type:` at the top level is what distinguishes the two shapes:
+
+```yaml
+VatStandard:                              # named collections — the series form
+  type: EffectiveDated<TaxRate>
+  common: { jurisdiction: GBR, taxType: VAT, category: Standard }
+  items:
+    - { from: 2011-01-04, rate: 20 }      # as the notice states it; the recipe says what 20 means
+    - { from: 2010-01-01, rate: 17.5 }
+```
+
+**One spelling for the entries: `items:`.** An earlier draft of this doc used `rows:` for a
+series and `items:` for a table. Two words for the same idea is something a data author has
+to remember for no gain, and c5n's own errors say "row" for an entry either way.
+
+**A series recipe is required, and takes `{entries}`.** There is no positional-ctor
+convention to fall back on — a collection is built by a factory taking a list, and what that
+factory is called is per-language. `{entries}` is the one reserved placeholder that does not
+name a declared field; the pair syntax inside it is the target's own (a C# tuple, a TS
+array), the same class of per-target spelling as string quoting.
+
+**The envelope cannot be hoisted to `common:`**, for the reason an identity cannot: it is
+what differs per entry. Caught at validation rather than at the merge, where it would
+surface as every entry claiming the same moment.
+
+**No new scalar was needed.** `from: 2011-01-04` goes through an ordinary external type with
+a parse recipe — `LocalDate.Parse("2011-01-04")` — which the one-field-scalar rule already
+covers. So the temporal design stays entirely in `f8n`, where the ISO-8601 subset and its
+strict grammar belong, and c5n gains no notion of a date. The same route is what any future
+unit-bearing scalar should take.
+
+Emitted C#, and the one place the two targets differ in *shape* rather than spelling:
+
+```csharp
+public static class VatStandard
+{
+    public static readonly EffectiveDated<TaxRate> Series = EffectiveDated.Of(
+        (LocalDate.Parse("2011-01-04"), new TaxRate(TaxType.VAT, TaxCategory.Standard, Percentage.FromPercent("20"))),
+        (LocalDate.Parse("2010-01-01"), new TaxRate(TaxType.VAT, TaxCategory.Standard, Percentage.FromPercent("17.5"))));
+}
+```
+
+```ts
+export const VatStandard = EffectiveDated.of([
+  [LocalDate.parse("2011-01-04"), new TaxRate(TaxType.VAT, TaxCategory.Standard, Percentage.fromPercent("20"))],
+]);
+```
+
+C# has no top-level value, so the series hangs off a static class named for it and reached as
+`VatStandard.Series`; TypeScript exports it directly. Everything else — the envelope
+position, the hoisted identity, the enum references, the nested constructors — is identical.
+
 ### The value-emitter (the conformance-critical heart)
 For each field the emitter resolves, **driven purely by the declared field type**, to one of three shapes:
 
@@ -372,6 +453,7 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - ~~**Output paths are derived from the type, not the source.**~~ **Resolved 2026-08-25: output is named for what it *declares* — the emitted unit — and tables are grouped accordingly.** A `table<T>` emits **one unit per type**, however many data files feed it: splitting reference data across files (per region, per source, per reviewer) is an authoring convenience, and the output does not inherit that shape. `EffectiveDated` will emit **one unit per named series**, since the series is what it declares. *Rejected: naming output after the source file* — it would put `partial class TaxRate` in `GbVat.g.cs` and three unrelated series in a file named after none of them, and it requires deriving a legal identifier from an arbitrary path (hyphens, digits, casing, non-ASCII) identically in every target. Naming by declaration keeps the file name matching the type it declares, gives TS the granularity tree-shaking wants, and turns a clash into a **symbol** collision — a real error with a real message — rather than a path clash nobody can act on. The former behaviour lost data silently: two files, one path, second write wins, and `c5n check` then failed straight after a clean build advising a rebuild that could not help.
 
 ## Change log
+- 2026-08-26: **series — `EffectiveDated<T>`, with the envelope declared by the type.** The second collection kind, and the first whose entries are not plain values: each carries an **envelope** alongside the fields that construct the `T`. The split comes from a schema declaration (`kind: series` + `envelope:`), not from c5n, which is what makes "temporality is declared, never sniffed" real in the implementation — an entry missing its `from:` is an error naming the declaration, and c5n never learns that a series keys on a field called `from`. Decisions recorded with it: a data file holds **several named collections** (distinguished by `type:` at the top level), since a file of tax rates holds many `EffectiveDated<TaxRate>` and the *name* is what the output unit is called; **one spelling, `items:`**, replacing this doc's earlier `rows:`/`items:` split, which was two words for one idea; a series **recipe is required** and takes the reserved `{entries}` placeholder, since a collection has no positional-ctor convention to fall back on; and the **envelope cannot be hoisted to `common:`**, for the reason an identity cannot. **No new scalar was needed** — the date goes through an ordinary external type with a parse recipe, so the temporal design stays in f8n and c5n gains no notion of a date, which is the route any future unit-bearing scalar should take.
 - 2026-08-26: **`common:`-hoisting, with overlap an error rather than a cascade.** Any field constant across a collection lifts to `common:` and each row carries only what varies; the emitted code is identical to writing every field out, which is the whole claim and so is what the tests pin byte-for-byte. Three rules came with it. A row that also sets a hoisted field is an **error** — and the reasoning is explicitly post-agent: a cascade was right when rejecting a file cost a person retyping the rows, but with an agent doing the expanding the keystrokes are free, so leniency keeps only the ambiguity. It is also the reversible direction (relaxing later breaks no data; tightening later would), and a real "constant except here" case is a *defaults* feature to be added deliberately, not a merge rule arriving by accident. **Hoisting the identity is rejected**, since a key varies by definition. And the **merge runs after validation**, so a mistake in `common:` is reported once against `common:` instead of once per row it was copied into — the 1.2 failure one layer up. Generalised for reuse: *an ergonomic leniency is a trade against human keystrokes; where an agent does the typing, re-derive the answer rather than inheriting the conventional one.*
 - 2026-08-26: **enums — members are declared, not drawn from data, and no casing is applied anywhere.** Revises the earlier sketch (`kind: enum`, "members drawn from data"), which Phase 1's own reasoning had already superseded: collected members make a typo **create** a member rather than fail, and since an enum serialises as text the typo mints a **wire token** — the failure the reference check exists to prevent. Declared members also make an enum the first unit emitted from the **schema alone**, where every prior unit derived from a data file; under the rejected design an enum nothing referenced could not have been emitted at all, so the public API would have depended on data coverage. That fact **dissolves the member-normalisation open question** instead of answering it — the schema name is the C# name, the TS name and the wire token, one spelling in three places, which is also the only rule under which `VAT` survives as `VAT`. c5n checks a member's *shape* (a legal identifier in every target, catching `zero-rated`) and leaves target keywords to the target compiler. **TS spelling: a const object plus a union of its values, not a TS `enum`** — so `TaxCategory.Standard` reads identically in both targets and the TS runtime value *is* the token C# serialises, with no converter to keep in sync; a TS `enum` is number-backed and not erasable syntax, and a bare string union would have forced a per-target reference spelling. Also pinned in `../f8n/DESIGN.md` → *Enums travel as their member name* (C# must be configured to write strings, not the serialiser's numeric default).
 - 2026-08-25: **cut the separate specification; the vector dataset is the artifact, and the runner moves onto the critical path.** The previous design made a prose spec the oracle, with vectors derived from it — sound reasoning, but it was carrying weight only because the runner that should carry it had been deferred, and it duplicated the numbers for every rule whose expected value is self-evident. Now: one language-neutral dataset plus a thin runner per language, with **rationale and authority citation recorded beside each non-obvious vector**, where they cannot drift from the value they explain. What survives unchanged is the caveat, which was never about specs: **conformance is not correctness** — green proves every language agrees with the dataset, not that the dataset is right — so correctness still costs one human pass per non-obvious rule against the authority. The clean-session cross-check is kept as a technique for auditing how precisely a rule is stated, rather than as a pipeline stage. **Accepted debt retired:** the parity net now exists while the money math is written, and the first vectors are deliberately the rational parse rather than money, so the harness is shaped on an easy case.

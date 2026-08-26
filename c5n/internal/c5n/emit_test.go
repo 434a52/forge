@@ -15,11 +15,14 @@ func mustTable(t *testing.T, src string) *Table {
 	if err := yaml.Unmarshal([]byte(src), &doc); err != nil {
 		t.Fatalf("yaml: %v", err)
 	}
-	tbl, err := parseDataDoc(&doc)
+	parsed, err := parseDataDoc(&doc)
 	if err != nil {
 		t.Fatalf("parseDataDoc: %v", err)
 	}
-	return tbl
+	if len(parsed) != 1 {
+		t.Fatalf("want one collection, got %d", len(parsed))
+	}
+	return parsed[0]
 }
 
 func rateSchema(emit map[string]string) Schema {
@@ -367,5 +370,45 @@ func TestEnumReferenceIsIdenticalInBothTargets(t *testing.T) {
 	// import per member, which is what a table constant gets.
 	if w := `import { TaxType } from "./taxtype.data.js";`; !strings.Contains(ts, w) {
 		t.Errorf("TS: want %s\ngot:\n%s", w, ts)
+	}
+}
+
+// seriesOnly is a series type declared with the recipes named by the caller, for pinning
+// what happens when a recipe is absent or malformed.
+func seriesOnly(emit map[string]string) Schema {
+	return Schema{
+		"Stamp": &Type{Name: "Stamp", External: true, Fields: []Field{{Name: "value", Type: "string"}}},
+		"Reading": &Type{Name: "Reading", External: true,
+			Fields: []Field{{Name: "code", Type: "string"}}},
+		"Series": &Type{Name: "Series", External: true, Kind: KindSeries,
+			Envelope: []Field{{Name: "at", Type: "Stamp"}}, Emit: emit},
+	}
+}
+
+// A series has no positional-ctor convention to fall back on — a collection is built by a
+// factory taking a list, and what that factory is called is per-language. Both ways of
+// getting the recipe wrong fail with a message naming the type and the target.
+func TestSeriesRecipeIsRequiredAndMustTakeTheEntries(t *testing.T) {
+	tbl := mustTable(t, "type: Series<Reading>\nitems:\n  - { at: noon, code: A }\n")
+
+	cases := []struct {
+		name string
+		emit map[string]string
+		want string
+	}{
+		{"no recipe", map[string]string{"ts": "x({entries})"}, "no emit.csharp recipe"},
+		{"recipe ignores the entries", map[string]string{"csharp": "Series.Empty()"}, "{entries}"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			schema := seriesOnly(c.emit)
+			_, err := emitSeriesCSharp(tbl, schema["Series"], schema["Reading"], schema, Target{Namespace: "X"}, "s.yaml")
+			if err == nil {
+				t.Fatal("want an error, got nil")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("want an error mentioning %q, got: %v", c.want, err)
+			}
+		})
 	}
 }

@@ -337,3 +337,54 @@ func TestUnresolvedReferenceInCommonIsRejected(t *testing.T) {
 		t.Errorf("want it reported once, got %d times:\n%s", n, err)
 	}
 }
+
+// seriesSchema is a series over a keyless value type — the shape the tax slice takes.
+func seriesSchema() Schema {
+	return Schema{
+		"Stamp": &Type{Name: "Stamp", External: true, Fields: []Field{{Name: "value", Type: "string"}}},
+		"Reading": &Type{Name: "Reading", External: true,
+			Fields: []Field{{Name: "code", Type: "string"}, {Name: "note", Type: "string"}}},
+		"Series": &Type{Name: "Series", External: true, Kind: KindSeries,
+			Envelope: []Field{{Name: "at", Type: "Stamp"}},
+			Emit:     map[string]string{"csharp": "Series.Of({entries})", "ts": "Series.of([{entries}])"}},
+	}
+}
+
+func validateSeries(t *testing.T, src string) error {
+	t.Helper()
+	tbl := mustTable(t, src)
+	tbl.Name = "Readings"
+	tbl.Source = "data/readings.yaml"
+	return Validate(seriesSchema(), []*Table{tbl})
+}
+
+// The envelope is what keys an entry, so it varies by entry for the same reason an identity
+// does. A series whose every entry took effect at one moment is not a series.
+func TestHoistingTheEnvelopeIsRejected(t *testing.T) {
+	err := validateSeries(t, "type: Series<Reading>\ncommon: { at: noon }\nitems:\n  - { code: A, note: x }\n")
+	if err == nil {
+		t.Fatal("want an error for hoisting the envelope, got nil")
+	}
+	if !strings.Contains(err.Error(), "envelope") {
+		t.Errorf("want the envelope named as the reason:\n%s", err)
+	}
+	// And not *also* reported as a missing envelope: one mistake, the better message.
+	if strings.Contains(err.Error(), "declares it as the envelope that keys an entry") {
+		t.Errorf("hoisting reported twice, once with the worse message:\n%s", err)
+	}
+}
+
+// An envelope field is a declared field like any other — it is not an exemption carved out
+// of the undeclared-field check, so a misspelling is still named.
+func TestEnvelopeFieldCountsAsDeclared(t *testing.T) {
+	if err := validateSeries(t, "type: Series<Reading>\nitems:\n  - { at: noon, code: A, note: x }\n"); err != nil {
+		t.Fatalf("want a clean run, got: %v", err)
+	}
+	err := validateSeries(t, "type: Series<Reading>\nitems:\n  - { att: noon, code: A, note: x }\n")
+	if err == nil {
+		t.Fatal("want an error for the misspelled envelope field, got nil")
+	}
+	if !strings.Contains(err.Error(), `"att"`) {
+		t.Errorf("want the misspelling named:\n%s", err)
+	}
+}

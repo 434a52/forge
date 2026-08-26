@@ -48,6 +48,12 @@ func TestBadTypeDeclarationsAreRejected(t *testing.T) {
 		{"duplicate member", "T:\n  kind: enum\n  members: [A, B, A]\n", "declared twice"},
 		{"member is not an identifier", "T:\n  kind: enum\n  members: [zero-rated]\n", "not a legal identifier"},
 		{"members without kind", "T:\n  external: true\n  members: [A]\n", "only declared on"},
+		{"unknown kind names both", "T:\n  kind: record\n", "series"},
+		{"generated series", "T:\n  kind: series\n  envelope: { from: string }\n", "must be external"},
+		{"series with no envelope", "T:\n  kind: series\n  external: true\n", "must declare an envelope"},
+		{"series with fields", "T:\n  kind: series\n  external: true\n  envelope: { from: string }\n  fields: { x: string }\n", "envelope, not fields"},
+		{"series with key", "T:\n  kind: series\n  external: true\n  key: x\n  envelope: { from: string }\n", "no key"},
+		{"envelope without kind", "T:\n  external: true\n  envelope: { from: string }\n", "only declared on"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

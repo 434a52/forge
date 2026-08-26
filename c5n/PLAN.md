@@ -6,8 +6,10 @@ step. Mark `✓` in place as steps land.
 
 **Where it stands:** `build` and `check` work end to end for `table<T>`, and f8n's
 Currency/Country slice is generated, committed, and green in every gate. The engine
-emits **all three value shapes** and **one of the four collection kinds**, and it now emits
+emits **all three value shapes** and **two of the four collection kinds**, and it now emits
 a type **body** (enums, from the schema alone) as well as instances of hand-written types.
+The tax slice generates exactly as designed; what it still needs is the f8n runtime types
+its output constructs (2.4b).
 
 ## Phase 0 — bootstrap ✓
 
@@ -123,14 +125,27 @@ compiling.
   runs after validation**, so a mistake in `common:` is reported once against `common:`
   rather than once per row it was copied into. No f8n data uses it until 2.4 — a consequence
   of the ordering, so it is covered by engine tests until the series arrives.
-- [ ] **2.4 — `EffectiveDated<T>`.** The second collection kind. The envelope/value split is
-  driven by the declared type — a row's `from:` is the envelope *because the type said so*,
-  and a missing or wrong key is a validation error, never a guess. Needs a hand-written
-  `EffectiveDated<T>` on both sides (minimal as-of lookup only). Note the data shape departs
-  from `table<T>`: several **named series** per file, not one `type:` + `items:`.
+- ✓ **2.4a — `EffectiveDated<T>`, the engine half.** The second collection kind. The
+  envelope/value split comes from a schema declaration (`kind: series` + `envelope:`), so a
+  row's `from:` is the envelope *because the type said so* and an entry without it is an
+  error naming the declaration — c5n never learns that a series keys on `from`. A data file
+  now holds **several named collections** (`type:` at the top level distinguishes the two
+  shapes), and the unit is the **series**, not the value type: `VatStandard.g.cs`, since one
+  file holds many `EffectiveDated<TaxRate>`. Settled with it: **one spelling, `items:`**
+  (this replaces the design's earlier `rows:`); a series **recipe is required** and takes
+  the reserved `{entries}`; the **envelope cannot be hoisted** to `common:`. **No new scalar
+  was needed** — the date is an external type with a parse recipe, so the temporal design
+  stays in f8n.
+- [ ] **2.4b — the f8n half.** Three hand-written types in C# and TS, then the data:
+  `LocalDate` (the ISO-8601 subset, strict, both languages accepting and rejecting
+  identically — a conformance surface, so vectors with it), `EffectiveDated<T>` (minimal
+  as-of lookup only), and `TaxRate`. Then `data/tax/gb-vat.yaml` generates, compiles and
+  typechecks, and the tax slice is real.
 
 **Checkpoint:** `gb-vat.yaml` generates, compiles and typechecks in both targets, drift-guard
-green.
+green. The engine reaches this at 2.4a — the scratch project proves the exact output the
+design specifies, in both languages — and f8n reaches it at 2.4b, once the three
+hand-written types exist for the generated code to construct.
 
 ## Phase 3 — the vector dataset and its runners
 
@@ -226,6 +241,13 @@ Phases 1–3 build (`DESIGN.md` → *Build order & what's deferrable*).
   it builds.
 
 ## Change log
+- 2026-08-26: **2.4 split into engine and f8n halves; 2.4a done.** The engine now reads and
+  emits `EffectiveDated<T>` exactly as the design specifies, verified against a scratch
+  project in both targets. Splitting it was the consequence of one decision: the envelope's
+  date goes through an ordinary external type with a parse recipe rather than a new `date`
+  scalar, so c5n needs no notion of time and the whole temporal design — the ISO-8601
+  subset, its strict grammar, the conformance vectors it will need — stays in f8n as 2.4b,
+  alongside the hand-written `EffectiveDated<T>` and `TaxRate` the generated code constructs.
 - 2026-08-26: **2.3 done — `common:`-hoisting, overlap rejected.** The equivalence is the
   feature, so the test generates a hoisted file and a written-out twin and compares the
   output byte-for-byte in both targets. The design call is recorded in `DESIGN.md`: a row

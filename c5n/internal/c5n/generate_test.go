@@ -252,3 +252,126 @@ func TestCommonMistakeIsReportedOnceAgainstCommon(t *testing.T) {
 		t.Errorf("want the mistake reported once, got %d times:\n%s", n, msg)
 	}
 }
+
+// seriesSchemaSrc is the shape f8n's tax slice will declare: a hand-written series type
+// whose envelope is a date, over a value type built from an enum and a wrapper primitive.
+const seriesSchemaSrc = `
+LocalDate:
+  external: true
+  fields: { value: string }
+  emit:
+    csharp: "LocalDate.Parse({value})"
+    ts:     "LocalDate.parse({value})"
+
+Percentage:
+  external: true
+  fields: { value: string }
+  emit:
+    csharp: "Percentage.FromPercent({value})"
+    ts:     "Percentage.fromPercent({value})"
+
+EffectiveDated:
+  external: true
+  kind: series
+  envelope: { from: LocalDate }
+  emit:
+    csharp: "EffectiveDated.Of({entries})"
+    ts:     "EffectiveDated.of([{entries}])"
+
+TaxType:     { kind: enum, members: [VAT] }
+TaxCategory: { kind: enum, members: [Standard, Reduced] }
+
+TaxRate:
+  external: true
+  fields: { taxType: TaxType, category: TaxCategory, rate: Percentage }
+`
+
+const gbVatSrc = `
+VatStandard:
+  type: EffectiveDated<TaxRate>
+  common: { taxType: VAT, category: Standard }
+  items:
+    - { from: 2011-01-04, rate: 20 }
+    - { from: 2010-01-01, rate: 17.5 }
+
+VatReduced:
+  type: EffectiveDated<TaxRate>
+  common: { taxType: VAT, category: Reduced }
+  items:
+    - { from: 2011-01-04, rate: 5 }
+`
+
+// A series is named by what it declares, so two series of one value type are two units.
+// Merging by value type — which is right for a table — would collapse them into one file
+// named after neither.
+func TestEachNamedSeriesIsItsOwnUnit(t *testing.T) {
+	dir := fixtureWithSchema(t, seriesSchemaSrc, map[string]string{"gb-vat.yaml": gbVatSrc})
+
+	files, _, err := generate(dir)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	byRel := map[string]string{}
+	for _, f := range files {
+		byRel[f.Rel] = f.Content
+	}
+	for _, rel := range []string{
+		filepath.Join("gen", "cs", "VatStandard.g.cs"),
+		filepath.Join("gen", "cs", "VatReduced.g.cs"),
+		filepath.Join("gen", "ts", "vatstandard.data.ts"),
+		filepath.Join("gen", "ts", "vatreduced.data.ts"),
+	} {
+		if _, ok := byRel[rel]; !ok {
+			t.Fatalf("want %s, got %v", rel, paths(files))
+		}
+	}
+
+	// The envelope and the value are separate positions in the entry, and `common:` fills
+	// the invariant identity into each one. Both targets construct the same values.
+	cs := byRel[filepath.Join("gen", "cs", "VatStandard.g.cs")]
+	for _, want := range []string{
+		"public static class VatStandard",
+		"public static readonly EffectiveDated<TaxRate> Series = EffectiveDated.Of(",
+		`(LocalDate.Parse("2011-01-04"), new TaxRate(TaxType.VAT, TaxCategory.Standard, Percentage.FromPercent("20")))`,
+	} {
+		if !strings.Contains(cs, want) {
+			t.Errorf("C#: want %q\ngot:\n%s", want, cs)
+		}
+	}
+
+	ts := byRel[filepath.Join("gen", "ts", "vatstandard.data.ts")]
+	for _, want := range []string{
+		"export const VatStandard = EffectiveDated.of([",
+		`[LocalDate.parse("2011-01-04"), new TaxRate(TaxType.VAT, TaxCategory.Standard, Percentage.fromPercent("20"))]`,
+		`import { EffectiveDated } from "../effectivedated.js";`,
+	} {
+		if !strings.Contains(ts, want) {
+			t.Errorf("TS: want %q\ngot:\n%s", want, ts)
+		}
+	}
+
+	// VatReduced must carry its own hoisted category, not VatStandard's.
+	if r := byRel[filepath.Join("gen", "cs", "VatReduced.g.cs")]; !strings.Contains(r, "TaxCategory.Reduced") {
+		t.Errorf("VatReduced took the wrong common:\n%s", r)
+	}
+}
+
+// "Temporality is declared, never sniffed": a row's `from:` is the envelope because the
+// type said so, so an entry without it is an error naming the declaration — never a value
+// quietly treated as one of the value type's own fields.
+func TestSeriesEntryWithoutItsEnvelopeIsRejected(t *testing.T) {
+	dir := fixtureWithSchema(t, seriesSchemaSrc, map[string]string{
+		"gb-vat.yaml": "VatStandard:\n  type: EffectiveDated<TaxRate>\n" +
+			"  common: { taxType: VAT, category: Standard }\n  items:\n    - { rate: 20 }\n",
+	})
+
+	_, _, err := generate(dir)
+	if err == nil {
+		t.Fatal("want an error for the entry with no envelope, got nil")
+	}
+	for _, want := range []string{`"from"`, "EffectiveDated", "envelope"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error is missing %q:\n%s", want, err)
+		}
+	}
+}

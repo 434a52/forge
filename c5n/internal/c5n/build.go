@@ -63,10 +63,14 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 	}
 	sort.Strings(targetNames)
 
+	// A collection's kind is either a built-in or the name of a schema type declared
+	// `kind: series`. Anything else is rejected here rather than surfacing as a confusing
+	// lookup failure further in.
 	for _, t := range tables {
-		if t.Kind != "table" {
-			return nil, nil, fmt.Errorf("%s: collection kind %q not yet supported", t.Source, t.Kind)
+		if t.Kind == "table" || seriesType(schema, t) != nil {
+			continue
 		}
+		return nil, nil, fmt.Errorf("%s: collection kind %q not yet supported", t.Source, t.Kind)
 	}
 
 	var files []GenFile
@@ -112,29 +116,41 @@ func generate(dir string) ([]GenFile, *Manifest, error) {
 		}
 	}
 
-	for _, t := range mergeByEmittedType(tables) {
+	for _, t := range emissionUnits(tables) {
 		// Validate has already rejected an unknown type; the check keeps the lookup total.
 		typ, ok := schema[t.ElemType]
 		if !ok {
 			return nil, nil, fmt.Errorf("%s: unknown type %s", t.Source, t.ElemType)
 		}
+		// A table is named by its type — one Currency unit however many files feed it. A
+		// series is named by itself, since a file holds several of one value type.
+		series := seriesType(schema, t)
+		unitName := typ.Name
+		if series != nil {
+			unitName = t.Name
+		}
+
 		for _, name := range targetNames {
 			target := m.Targets[name]
-			outPath, err := outputPath(dir, target, name, typ.Name)
+			outPath, err := outputPath(dir, target, name, unitName)
 			if err != nil {
 				return nil, nil, err
 			}
 			var code string
-			switch name {
-			case "csharp":
+			switch {
+			case name == "csharp" && series != nil:
+				code, err = emitSeriesCSharp(t, series, typ, schema, target, schemaSrc)
+			case name == "csharp":
 				code, err = emitCSharp(t, typ, schema, target, schemaSrc)
-			case "ts":
+			case name == "ts" && series != nil:
+				code, err = emitSeriesTS(t, series, typ, schema, schemaSrc)
+			case name == "ts":
 				code, err = emitTS(t, typ, schema, schemaSrc)
 			default:
 				return nil, nil, fmt.Errorf("unknown target %q in manifest", name)
 			}
 			if err != nil {
-				return nil, nil, fmt.Errorf("emit %s/%s: %w", name, typ.Name, err)
+				return nil, nil, fmt.Errorf("emit %s/%s: %w", name, unitName, err)
 			}
 			if err := addFile(outPath, code, name, t.Source); err != nil {
 				return nil, nil, err
@@ -179,49 +195,57 @@ func sortedEnums(schema Schema) []*Type {
 	return enums
 }
 
-// mergeByEmittedType groups the loaded tables by what they are *emitted as*, because that
-// is what names the output file — not the file they happened to be authored in.
+// emissionUnits groups the loaded collections by what each is *emitted as*, because that is
+// what names the output file — not the file it happened to be authored in.
 //
-// A `table<T>` emits one unit per type: however many data files declare Currency rows, they
-// become one Currency.g.cs. Splitting reference data across files is an authoring
-// convenience — per region, per source, per reviewer — and the output should not inherit
-// that shape. Before this, two files declaring one type resolved to one path and the second
-// silently overwrote the first; `c5n check` then failed immediately after a clean build,
-// advising a rebuild that could not fix it.
+// The two kinds group differently, and the rule is the same one both times: a unit is named
+// for what it declares.
 //
-// Rows keep source order: tables arrive sorted by path and rows in file order, so the merged
+//   - A table declares a *type*, so it emits one unit per type: however many data files
+//     declare Currency rows, they become one Currency.g.cs. Splitting reference data across
+//     files is an authoring convenience — per region, per source, per reviewer — and the
+//     output should not inherit that shape. Before this, two files declaring one type
+//     resolved to one path and the second silently overwrote the first.
+//   - A series declares a *name*, so each is its own unit. Merging by value type would
+//     collapse VatStandard and VatReduced into one file named after neither.
+//
+// Rows keep source order: files arrive sorted by path and rows in file order, so the merged
 // output is deterministic and each data file's rows stay contiguous in the diff.
-//
-// The unit is per *kind*, so this grows as kinds do — `EffectiveDated` will emit one unit
-// per named series rather than one per type, and will group accordingly.
-func mergeByEmittedType(tables []*Table) []*Table {
-	var order []string // element types in first-appearance order
-	merged := map[string]*Table{}
+func emissionUnits(tables []*Table) []*Table {
+	var order []string // unit keys in first-appearance order
+	units := map[string]*Table{}
 	sources := map[string][]string{}
 
 	for _, t := range tables {
-		unit, seen := merged[t.ElemType]
+		// A named collection is a unit on its own; only unnamed ones merge by type. The key
+		// is prefixed so a series can never collide with a table of the same spelling.
+		key := "type:" + t.ElemType
+		if t.Name != "" {
+			key = "name:" + t.Name
+		}
+
+		unit, seen := units[key]
 		if !seen {
 			clone := *t
 			clone.Rows = append([]Row(nil), t.Rows...)
-			merged[t.ElemType] = &clone
-			sources[t.ElemType] = []string{t.Source}
-			order = append(order, t.ElemType)
+			units[key] = &clone
+			sources[key] = []string{t.Source}
+			order = append(order, key)
 			continue
 		}
 		unit.Rows = append(unit.Rows, t.Rows...)
-		sources[t.ElemType] = append(sources[t.ElemType], t.Source)
+		sources[key] = append(sources[key], t.Source)
 	}
 
-	units := make([]*Table, 0, len(order))
-	for _, name := range order {
-		unit := merged[name]
+	out := make([]*Table, 0, len(order))
+	for _, key := range order {
+		unit := units[key]
 		// Provenance is every file that fed the unit, so the generated header still says
 		// where to go and looking at one source no longer tells half the story.
-		unit.Source = strings.Join(sources[name], " + ")
-		units = append(units, unit)
+		unit.Source = strings.Join(sources[key], " + ")
+		out = append(out, unit)
 	}
-	return units
+	return out
 }
 
 // Build runs the full pipeline rooted at dir and writes the generated files.

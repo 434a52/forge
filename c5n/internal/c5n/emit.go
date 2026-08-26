@@ -316,6 +316,170 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 	return b.String(), nil
 }
 
+// A series emits one unit per *named* series — `VatStandard`, not `TaxRate` — because the
+// name is what it declares. Several series of the same value type live in one data file and
+// "the TaxRate one" would not tell them apart.
+//
+// Each entry is the declared envelope followed by the constructed value. The pair syntax is
+// the target's own (a C# tuple, a TS array), like string quoting; what the pairs are handed
+// to is the series type's emit: recipe, so c5n never learns that EffectiveDated has a
+// factory called Of.
+
+// entriesPlaceholder is the one reserved slot in a series recipe. Unlike {field} it does
+// not name a declared field — it stands for the whole rendered entry list.
+const entriesPlaceholder = "{entries}"
+
+// constructSeries wraps the rendered entries in the series type's recipe for this target.
+// A series has no positional-ctor convention to fall back on: a collection is built by a
+// factory taking a list, and what that factory is called is per-language. So the recipe is
+// required rather than optional.
+func constructSeries(series *Type, target, entries string) (string, error) {
+	recipe, ok := series.Emit[target]
+	if !ok {
+		return "", fmt.Errorf("%s declares no emit.%s recipe, and a series has no construction convention to fall back on", series.Name, target)
+	}
+	if !strings.Contains(recipe, entriesPlaceholder) {
+		return "", fmt.Errorf("emit.%s for %s must contain %s — it is where the entries go", target, series.Name, entriesPlaceholder)
+	}
+	return strings.Replace(recipe, entriesPlaceholder, entries, 1), nil
+}
+
+// seriesEntries resolves every row to one entry expression: the envelope values the series
+// declares, then the constructed value, rendered as a pair by the caller's target syntax.
+func seriesEntries(t *Table, series, typ *Type, ctx valueContext, pair func([]string) string) ([]string, error) {
+	entries := make([]string, 0, len(t.Rows))
+	for i, row := range t.Rows {
+		parts := make([]string, 0, len(series.Envelope)+1)
+		for _, f := range series.Envelope {
+			text, ok := row[f.Name]
+			if !ok {
+				return nil, fmt.Errorf("entry %d: field %s: missing from row", i+1, f.Name)
+			}
+			arg, err := emitValue(f.Type, text, ctx, 0)
+			if err != nil {
+				return nil, fmt.Errorf("entry %d: field %s: %w", i+1, f.Name, err)
+			}
+			parts = append(parts, arg)
+		}
+
+		args, byField, err := rowArgs(row, typ, ctx)
+		if err != nil {
+			return nil, fmt.Errorf("entry %d: %w", i+1, err)
+		}
+		value, err := construct(typ, ctx.target, args, byField)
+		if err != nil {
+			return nil, fmt.Errorf("entry %d: %w", i+1, err)
+		}
+		parts = append(parts, value)
+
+		entries = append(entries, pair(parts))
+	}
+	return entries, nil
+}
+
+// emitSeriesCSharp renders one named series as a static class holding the collection.
+//
+// The `Series` member exists because C# has no top-level value: the series needs a type to
+// hang from, and naming that type after the series is what keeps the file name, the class
+// and the declaration in agreement. TypeScript has no such need, so it exports the series
+// directly — the one place the two targets differ in shape rather than spelling.
+func emitSeriesCSharp(t *Table, series, typ *Type, schema Schema, target Target, schemaSrc string) (string, error) {
+	ctx := valueContext{
+		schema: schema,
+		target: "csharp",
+		ref:    func(refType *Type, value string) string { return refType.Name + "." + value },
+		use:    func(string) {},
+	}
+	entries, err := seriesEntries(t, series, typ, ctx, func(parts []string) string {
+		return "(" + strings.Join(parts, ", ") + ")"
+	})
+	if err != nil {
+		return "", err
+	}
+	call, err := constructSeries(series, "csharp", "\n        "+strings.Join(entries, ",\n        "))
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	b.WriteString(csharpHeader(schemaSrc + " + " + t.Source))
+	fmt.Fprintf(&b, "namespace %s;\n\n", target.Namespace)
+	fmt.Fprintf(&b, "public static class %s\n{\n", t.Name)
+	fmt.Fprintf(&b, "    public static readonly %s<%s> Series = %s;\n", series.Name, typ.Name, call)
+	b.WriteString("}\n")
+	return b.String(), nil
+}
+
+// emitSeriesTS renders one named series as a single exported const.
+func emitSeriesTS(t *Table, series, typ *Type, schema Schema, schemaSrc string) (string, error) {
+	var refOrder []string
+	refVals := map[string][]string{}
+	seen := map[string]bool{}
+	var usedOrder []string
+	used := map[string]bool{}
+
+	importFrom := func(refType, identifier string) {
+		key := refType + "." + identifier
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		if _, ok := refVals[refType]; !ok {
+			refOrder = append(refOrder, refType)
+		}
+		refVals[refType] = append(refVals[refType], identifier)
+	}
+	noteUsed := func(typeName string) {
+		if !used[typeName] {
+			used[typeName] = true
+			usedOrder = append(usedOrder, typeName)
+		}
+	}
+
+	ctx := valueContext{
+		schema: schema,
+		target: "ts",
+		ref: func(refType *Type, value string) string {
+			if refType.IsEnum() {
+				importFrom(refType.Name, refType.Name)
+				return refType.Name + "." + value
+			}
+			importFrom(refType.Name, value)
+			return value
+		},
+		use: noteUsed,
+	}
+
+	entries, err := seriesEntries(t, series, typ, ctx, func(parts []string) string {
+		return "[" + strings.Join(parts, ", ") + "]"
+	})
+	if err != nil {
+		return "", err
+	}
+	call, err := constructSeries(series, "ts", "\n  "+strings.Join(entries, ",\n  ")+",\n")
+	if err != nil {
+		return "", err
+	}
+
+	// The value type and the series type are both hand-written, and TS has no partial, so
+	// both are imported by name. Noted after the entries are rendered, since that is what
+	// discovers the rest.
+	noteUsed(typ.Name)
+	noteUsed(series.Name)
+
+	var b strings.Builder
+	b.WriteString(tsHeader(schemaSrc + " + " + t.Source))
+	for _, u := range usedOrder {
+		fmt.Fprintf(&b, "import { %s } from \"../%s.js\";\n", u, strings.ToLower(u))
+	}
+	for _, rt := range refOrder {
+		fmt.Fprintf(&b, "import { %s } from \"./%s.data.js\";\n", strings.Join(refVals[rt], ", "), strings.ToLower(rt))
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "export const %s = %s;\n", t.Name, call)
+	return b.String(), nil
+}
+
 // Enums are the first type c5n emits a *body* for rather than instances of a hand-written
 // one. They are generated from the schema alone: members are declared, so an enum exists
 // whether or not any data row has referenced it yet.

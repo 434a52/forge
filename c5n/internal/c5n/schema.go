@@ -17,21 +17,36 @@ type Schema map[string]*Type
 // identity field — it becomes the constant name and the reference target.
 type Type struct {
 	Name     string
-	Kind     string // "" for a record/external type; KindEnum for a generated enum
+	Kind     string // "" for a record/external type; KindEnum or KindSeries
 	External bool
 	Key      string
 	Fields   []Field           // in declaration order — this is the ctor arg order
 	Members  []string          // enum members, in declaration order
+	Envelope []Field           // series only: the fields that key an entry, not construct it
 	Emit     map[string]string // target -> construction recipe; nil = positional-ctor convention
 }
 
-// KindEnum is the one declared kind so far. A kind is how a type says it is something
-// other than a plain record, and it is what makes c5n emit a type *body* rather than
-// instances of a hand-written one.
-const KindEnum = "enum"
+// A kind is how a type says it is something other than a plain record.
+const (
+	// KindEnum makes c5n emit a type *body* rather than instances of a hand-written one.
+	KindEnum = "enum"
+
+	// KindSeries is a collection type wrapping a value type, where each entry carries an
+	// envelope alongside the value's own fields. `EffectiveDated` is the first: its
+	// envelope is the date a rate takes effect from.
+	//
+	// The envelope is declared here rather than built into c5n because c5n must not know
+	// that a temporal series keys on a field called `from`. A series declares what keys it;
+	// an entry missing that field is a validation error rather than a guess, which is the
+	// whole of "temporality is declared, never sniffed".
+	KindSeries = "series"
+)
 
 // IsEnum reports whether this type is a generated enum.
 func (t *Type) IsEnum() bool { return t.Kind == KindEnum }
+
+// IsSeries reports whether this type is a collection with a declared envelope.
+func (t *Type) IsSeries() bool { return t.Kind == KindSeries }
 
 // DeclaresMember reports whether name is one of this enum's declared members. A linear
 // scan: an enum's members are a handful of domain terms, not a table.
@@ -132,6 +147,12 @@ func parseTypeDecl(decl *yaml.Node, t *Type) error {
 				return err
 			}
 			t.Members = members
+		case "envelope":
+			envelope, err := parseFields(val)
+			if err != nil {
+				return err
+			}
+			t.Envelope = envelope
 		default:
 			return fmt.Errorf("unknown declaration key %q", key)
 		}
@@ -202,13 +223,33 @@ func parseMembers(node *yaml.Node) ([]string, error) {
 // to a table row gets, and it matters more here: an enum member's name is what crosses
 // the wire, so a typo that minted a member would mint a wire token with it.
 func checkTypeDecl(t *Type) error {
-	if t.Kind != "" && t.Kind != KindEnum {
-		return fmt.Errorf("unknown kind %q (the only kind is %q)", t.Kind, KindEnum)
+	switch t.Kind {
+	case "", KindEnum, KindSeries:
+	default:
+		return fmt.Errorf("unknown kind %q (the kinds are %q and %q)", t.Kind, KindEnum, KindSeries)
 	}
-	if !t.IsEnum() {
-		if len(t.Members) > 0 {
-			return fmt.Errorf("members are only declared on `kind: enum`")
+	if len(t.Members) > 0 && !t.IsEnum() {
+		return fmt.Errorf("members are only declared on `kind: %s`", KindEnum)
+	}
+	if len(t.Envelope) > 0 && !t.IsSeries() {
+		return fmt.Errorf("an envelope is only declared on `kind: %s`", KindSeries)
+	}
+
+	if t.IsSeries() {
+		switch {
+		case !t.External:
+			return fmt.Errorf("a series is a hand-written runtime type, so it must be external")
+		case len(t.Envelope) == 0:
+			return fmt.Errorf("a series must declare an envelope — the field(s) that key an entry")
+		case len(t.Fields) > 0:
+			return fmt.Errorf("a series has an envelope, not fields — the value's fields come from the type it wraps")
+		case t.Key != "":
+			return fmt.Errorf("a series has no key — its entries are keyed by the envelope")
 		}
+		return nil
+	}
+
+	if !t.IsEnum() {
 		return nil
 	}
 

@@ -15,7 +15,8 @@ import (
 // the rows here and merged in later, after validation, so that a mistake in it is reported
 // once against `common:` rather than once per row it was copied into.
 type Table struct {
-	Kind     string // "table", "list", "tree", "EffectiveDated"
+	Kind     string // "table", "list", "tree", or a declared series type
+	Name     string // the collection's declared name; empty for a table, which is named by its type
 	ElemType string // e.g. "Currency"
 	Common   Row    // fields constant across every row; nil when the file declares none
 	Rows     []Row
@@ -46,26 +47,73 @@ func LoadData(root string, paths []string) ([]*Table, error) {
 		if err := yaml.Unmarshal(raw, &doc); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
-		t, err := parseDataDoc(&doc)
+		parsed, err := parseDataDoc(&doc)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
-		t.Source = p
-		tables = append(tables, t)
+		for _, t := range parsed {
+			t.Source = p
+			tables = append(tables, t)
+		}
 	}
 	return tables, nil
 }
 
-// parseDataDoc walks the top-level mapping: `type:` plus `items:`.
-func parseDataDoc(doc *yaml.Node) (*Table, error) {
+// parseDataDoc reads a data file into one or more collections.
+//
+// A file takes one of two shapes, and `type:` at the top level is what tells them apart:
+//
+//	type: table<Currency>        # one collection, unnamed — the output is named by its type
+//	items: [...]
+//
+//	VatStandard:                 # several named collections, each with its own type
+//	  type: EffectiveDated<TaxRate>
+//	  items: [...]
+//
+// The second shape exists because a series is named by *what it declares* rather than by
+// the type it wraps: a file of tax rates holds many EffectiveDated<TaxRate> series, and
+// "the TaxRate one" would not distinguish them. A table needs no such name — one unit per
+// type, however many files feed it.
+func parseDataDoc(doc *yaml.Node) ([]*Table, error) {
 	if len(doc.Content) == 0 {
 		return nil, fmt.Errorf("empty document")
 	}
 	root := doc.Content[0]
 	if root.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("expected a mapping with `type` and `items`")
+		return nil, fmt.Errorf("expected a mapping")
 	}
 
+	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Value == "type" {
+			t, err := parseCollection(root)
+			if err != nil {
+				return nil, err
+			}
+			return []*Table{t}, nil
+		}
+	}
+
+	var tables []*Table
+	for i := 0; i < len(root.Content); i += 2 {
+		name, body := root.Content[i].Value, root.Content[i+1]
+		if body.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("%s: expected a mapping with `type` and `items`", name)
+		}
+		t, err := parseCollection(body)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		t.Name = name
+		tables = append(tables, t)
+	}
+	if len(tables) == 0 {
+		return nil, fmt.Errorf("no collections in this file")
+	}
+	return tables, nil
+}
+
+// parseCollection reads one collection body: `type:`, an optional `common:`, and `items:`.
+func parseCollection(root *yaml.Node) (*Table, error) {
 	t := &Table{}
 	var items *yaml.Node
 	for i := 0; i < len(root.Content); i += 2 {
