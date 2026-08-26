@@ -33,7 +33,7 @@ catch (Exception ex)
 // another for a LocalDate. The subject names which type's vectors these are, so one runner
 // per language covers every f8n subject rather than one binary per type.
 var subject = document["subject"]?.GetValue<string>() ?? "";
-if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated" or "f8n.Rounding" or "f8n.Money"))
+if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated" or "f8n.Rounding" or "f8n.Money" or "f8n.Country" or "f8n.CultureCanary"))
 {
     Console.Error.WriteLine($"run-vector: unknown subject \"{subject}\"");
     return 2;
@@ -101,6 +101,9 @@ static bool IsKnownOperation(string subject, string op)
         ("f8n.Money", "divideBy") => true,
         ("f8n.Money", "property.minorMatchesMajor") => true,
         ("f8n.Money", "property.addSubtractIsExact") => true,
+        ("f8n.Country", "find") => true,
+        ("f8n.Country", "property.formsAgree") => true,
+        ("f8n.CultureCanary", "upperCaseI") => true,
         _ => false,
     };
 }
@@ -152,6 +155,15 @@ static string Execute(string subject, string op, List<string> inputs)
             return Property.MinorMatchesMajor(inputs[0], inputs[1], inputs[2]);
         case ("f8n.Money", "property.addSubtractIsExact"):
             return Property.AddSubtractIsExact(inputs[0], inputs[1], inputs[2]);
+        case ("f8n.Country", "find"):
+            return Country.Find(inputs[0])?.Alpha3 ?? "(none)";
+        case ("f8n.Country", "property.formsAgree"):
+            return Property.FormsAgree(inputs[0], inputs[1], inputs[2]);
+        // Deliberately culture-SENSITIVE, and the only thing in f8n that is. It exists to
+        // prove the hostile-locale CI step is actually hostile; everything else uses the
+        // invariant form precisely so it is not.
+        case ("f8n.CultureCanary", "upperCaseI"):
+            return "i".ToUpper();
         default:
             throw new InvalidOperationException($"unknown op {op} for {subject}");
     }
@@ -310,6 +322,24 @@ static class Property
         if (!roundTripped.Equals(a))
         {
             return $"({first} + {second}) - {second} gave {roundTripped.Amount}, not {first}";
+        }
+        return "true";
+    }
+
+    // Every form of one country finds the same row. This is what makes accepting three forms
+    // a convenience rather than three different answers.
+    public static string FormsAgree(string alpha2, string alpha3, string numeric)
+    {
+        var byTwo = Country.Find(alpha2);
+        var byThree = Country.Find(alpha3);
+        var byNumber = Country.Find(numeric);
+        if (byTwo is null || byThree is null || byNumber is null)
+        {
+            return $"one of {alpha2}/{alpha3}/{numeric} found nothing";
+        }
+        if (byTwo.Alpha3 != byThree.Alpha3 || byTwo.Alpha3 != byNumber.Alpha3)
+        {
+            return $"{alpha2} found {byTwo.Alpha3}, {alpha3} found {byThree.Alpha3}, {numeric} found {byNumber.Alpha3}";
         }
         return "true";
     }

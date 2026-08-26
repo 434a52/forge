@@ -123,6 +123,41 @@ One asymmetry it leaves, deliberately: the TS union accepts a raw `"Standard"` o
 directly, where C# needs a parse. That is deserialisation being cheaper on one side, not the
 contract differing.
 
+### Lookups — `key:` identifies, `lookup:` also finds
+A `table<T>` always emits an index on its `key:`, and one more per field listed in `lookup:`:
+
+```yaml
+Country:
+  key: alpha3                  # identity: the constant's name, the reference target, the wire form
+  lookup: [alpha2, numeric]    # additionally indexed
+```
+
+The two are **different declarations rather than a list of equals**, and that asymmetry is
+the point. `key:` is the canonical form; the others are ways in. A value arrives from foreign
+systems in forms that are not the identity — a country is identified by its alpha-3 code and
+turns up as an alpha-2 constantly — and those need resolving without becoming second wire
+forms. Make them interchangeable and nothing says which is canonical, which is precisely how
+one value acquires three encodings.
+
+**c5n emits the precise accessors and stops there.** One per index — `ByAlpha3`, `ByAlpha2`,
+`ByNumeric` — each taking that field's declared type and returning the row or nothing. A
+dispatcher that takes *"a code, in whatever form"* is **hand-written beside the type**,
+because deciding which form a string is requires knowing that alpha-2 and alpha-3 have
+disjoint widths and that numeric is three digits. That is domain knowledge about ISO 3166;
+c5n knows only that the fields are `string, string, int`. The standing guardrail holds
+without needing to be argued again: *c5n emits the typed boundary, the algorithm is
+hand-written.*
+
+Validation treats a lookup field like the key — **unique across every file that feeds the
+type**, since a lookup is a promise that a value finds one row. Lookup fields must be scalars;
+indexing a reference or a nested value has no obvious key and would be inventing semantics
+nobody has asked for. A miss returns null/undefined rather than throwing: a code that names no
+row is an ordinary outcome when the value came from somewhere else.
+
+*(Casing an accessor name — `alpha2` → `ByAlpha2` — is not the casing this design refuses for
+enum members. A member name is a published wire token; an accessor name is an identifier c5n
+chose, and nothing outside the generated code depends on its spelling.)*
+
 ### Data — positionally typed, `common`-hoisted
 Data files stay clean: a collection binds to a schema type **once** (a top-level `type:`), and every nested field's type is looked up from the schema recursively. **No per-value type tags** — position carries the type. (The sole exception: a genuinely polymorphic field, whose declared type is a union — only there does a value carry a discriminator. Rare; zero cost when absent.)
 
@@ -473,6 +508,7 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - ~~**Output paths are derived from the type, not the source.**~~ **Resolved 2026-08-25: output is named for what it *declares* — the emitted unit — and tables are grouped accordingly.** A `table<T>` emits **one unit per type**, however many data files feed it: splitting reference data across files (per region, per source, per reviewer) is an authoring convenience, and the output does not inherit that shape. `EffectiveDated` will emit **one unit per named series**, since the series is what it declares. *Rejected: naming output after the source file* — it would put `partial class TaxRate` in `GbVat.g.cs` and three unrelated series in a file named after none of them, and it requires deriving a legal identifier from an arbitrary path (hyphens, digits, casing, non-ASCII) identically in every target. Naming by declaration keeps the file name matching the type it declares, gives TS the granularity tree-shaking wants, and turns a clash into a **symbol** collision — a real error with a real message — rather than a path clash nobody can act on. The former behaviour lost data silently: two files, one path, second write wins, and `c5n check` then failed straight after a clean build advising a rebuild that could not help.
 
 ## Change log
+- 2026-08-26: **`lookup:` — a table can declare secondary indexes.** Every `table<T>` now emits an accessor for its `key:`, and one more per field listed in `lookup:`. The two declarations stay deliberately different: `key:` is the canonical form — the constant's name, the reference target, and what a value takes on the wire — while `lookup:` fields are *ways in*, for values arriving from systems that use another form. Collapsing them into one list would leave nothing saying which is canonical, which is how one value acquires several encodings. c5n emits the **precise** accessors only; a dispatcher taking a code in whatever form is hand-written, because deciding which form a string is needs domain knowledge (alpha-2 and alpha-3 have disjoint widths) that the schema does not hold. Lookup fields are validated unique per type across every file, and restricted to scalars.
 - 2026-08-26: **an int with a leading zero is rejected.** Found while adding a currency whose ISO numeric code is conventionally written `048`. Scalars are emitted as the authored text, and `048` is a decimal literal in C# but a **syntax error in a TypeScript module** — so one data file would have compiled in one target and not the other. It is also two spellings of one value, which this design refuses everywhere else. The error names both readings, since an author who wrote it most likely wanted the ISO *string* and should declare the field as one.
 - 2026-08-26: **properties recorded as the independent derivation path, and toolchain pinning re-aimed.** A bulk vector captures a value from one implementation, and a second implementation written against that dataset agrees with it whether or not either is right; a **property** carries no captured value, so its expected result comes from the rule. That is the gap it closes, and it is why properties sit beside the dataset rather than inside it. Separately, the standing instruction to pin toolchains exactly once behaviour is under test was **narrowed**: a pin guards a *runtime-dependent result*, and f8n has arranged to have none — character-walk parsers, invariant formatting, big-integer arithmetic — so the guarantee is held by construction rather than by a version number, and the trigger moves to l10n's locale formatting, where ICU is the subject. Confirmed by re-running under hostile locales, and kept as a technique rather than a CI stage, since a check that cannot fail reads as coverage it does not provide.
 - 2026-08-26: **series — `EffectiveDated<T>`, with the envelope declared by the type.** The second collection kind, and the first whose entries are not plain values: each carries an **envelope** alongside the fields that construct the `T`. The split comes from a schema declaration (`kind: series` + `envelope:`), not from c5n, which is what makes "temporality is declared, never sniffed" real in the implementation — an entry missing its `from:` is an error naming the declaration, and c5n never learns that a series keys on a field called `from`. Decisions recorded with it: a data file holds **several named collections** (distinguished by `type:` at the top level), since a file of tax rates holds many `EffectiveDated<TaxRate>` and the *name* is what the output unit is called; **one spelling, `items:`**, replacing this doc's earlier `rows:`/`items:` split, which was two words for one idea; a series **recipe is required** and takes the reserved `{entries}` placeholder, since a collection has no positional-ctor convention to fall back on; and the **envelope cannot be hoisted to `common:`**, for the reason an identity cannot. **No new scalar was needed** — the date goes through an ordinary external type with a parse recipe, so the temporal design stays in f8n and c5n gains no notion of a date, which is the route any future unit-bearing scalar should take.

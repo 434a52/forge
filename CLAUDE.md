@@ -71,7 +71,9 @@ uncounted — the list grows, and a number in the prose is a thing that goes sta
   binary, which is why `/c5n/c5n` is gitignored. `c5n build ../f8n` regenerates.)
 - **C# target** — `cd f8n/dotnet && dotnet build`
 - **TS target** — `cd f8n/ts && npm ci && npm run typecheck`
-- **conformance** — both languages against one vector dataset. Needs the TS build first
+- **conformance** — both languages against one vector dataset, and again under
+  `LC_ALL=tr_TR.UTF-8` (see `.github/workflows/ci.yml`; `Country.Find` is the one path a
+  locale can move). Needs the TS build first
   (`cd f8n/ts && npm run build`), since the runner executes the compiled `dist/`:
 
   ```

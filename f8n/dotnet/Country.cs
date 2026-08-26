@@ -47,4 +47,66 @@ public partial class Country
         DefaultCurrency = defaultCurrency;
         CapitalTz = capitalTz;
     }
+
+    /// <summary>
+    /// Finds a country from a code in any of its forms — alpha-2, alpha-3, or numeric.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An <em>ingestion</em> helper, and deliberately not what the wire uses. A country
+    /// travels as its alpha-3 identity and nothing else, because accepting three forms there
+    /// would give one value three encodings and break the rule that wire equality is value
+    /// equality (f8n/DESIGN.md → Wire format). This exists for the other direction: a code
+    /// arriving from a payment processor, an address form or a browser, where the form is
+    /// whatever that system happens to use.
+    /// </para>
+    /// <para>
+    /// Leniency here is safe in a way it usually is not, because the three forms occupy
+    /// disjoint shapes — two letters, three letters, three digits — so nothing is guessed.
+    /// </para>
+    /// <para>
+    /// Case is normalised with <c>ToUpperInvariant</c>, never <c>ToUpper</c>. Under a Turkish
+    /// locale <c>"ie".ToUpper()</c> is <c>"İE"</c> — a dotted capital I — and Ireland would
+    /// stop resolving on machines in one country. That trap is the strongest argument for
+    /// this living here once rather than at every call site that has a code to look up.
+    /// </para>
+    /// </remarks>
+    public static Country? Find(string code)
+    {
+        if (string.IsNullOrEmpty(code))
+        {
+            return null;
+        }
+        var normalised = code.ToUpperInvariant();
+
+        if (normalised.Length == 3 && IsAllAsciiDigits(normalised))
+        {
+            return ByNumeric(int.Parse(normalised, System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return normalised.Length switch
+        {
+            2 => ByAlpha2(normalised),
+            3 => ByAlpha3(normalised),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Whether every character is an ASCII digit.
+    /// </summary>
+    /// <remarks>
+    /// Not <c>char.IsDigit</c>, which is true for the digits of many scripts — the same trap
+    /// <see cref="LocalDate"/> avoids. A numeric country code is ASCII or it is not one.
+    /// </remarks>
+    private static bool IsAllAsciiDigits(string text)
+    {
+        foreach (var c in text)
+        {
+            if (c < '0' || c > '9')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 }

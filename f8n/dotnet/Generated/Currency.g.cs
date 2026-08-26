@@ -11,4 +11,30 @@ public partial class Currency
     public static readonly Currency USD = new Currency("USD", 840, "US Dollar", "$", 2);
     public static readonly Currency JPY = new Currency("JPY", 392, "Yen", "¥", 0);
     public static readonly Currency BHD = new Currency("BHD", 48, "Bahraini Dinar", "BD", 3);
+
+    private static readonly Dictionary<string, Currency> ByCodeIndex = new()
+    {
+        ["GBP"] = GBP,
+        ["EUR"] = EUR,
+        ["USD"] = USD,
+        ["JPY"] = JPY,
+        ["BHD"] = BHD,
+    };
+
+    /// <summary>The Currency whose code is <paramref name="code"/>, or null if no row has it.</summary>
+    public static Currency? ByCode(string code) =>
+        ByCodeIndex.TryGetValue(code, out var found) ? found : null;
+
+    private static readonly Dictionary<int, Currency> ByNumericIndex = new()
+    {
+        [826] = GBP,
+        [978] = EUR,
+        [840] = USD,
+        [392] = JPY,
+        [48] = BHD,
+    };
+
+    /// <summary>The Currency whose numeric is <paramref name="numeric"/>, or null if no row has it.</summary>
+    public static Currency? ByNumeric(int numeric) =>
+        ByNumericIndex.TryGetValue(numeric, out var found) ? found : null;
 }

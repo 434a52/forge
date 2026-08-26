@@ -7,3 +7,29 @@ export const EUR = new Currency("EUR", 978, "Euro", "€", 2);
 export const USD = new Currency("USD", 840, "US Dollar", "$", 2);
 export const JPY = new Currency("JPY", 392, "Yen", "¥", 0);
 export const BHD = new Currency("BHD", 48, "Bahraini Dinar", "BD", 3);
+
+const byCodeIndex = new Map<string, Currency>([
+  ["GBP", GBP],
+  ["EUR", EUR],
+  ["USD", USD],
+  ["JPY", JPY],
+  ["BHD", BHD],
+]);
+
+/** The Currency whose code is `code`, or undefined if no row has it. */
+export function byCode(code: string): Currency | undefined {
+  return byCodeIndex.get(code);
+}
+
+const byNumericIndex = new Map<number, Currency>([
+  [826, GBP],
+  [978, EUR],
+  [840, USD],
+  [392, JPY],
+  [48, BHD],
+]);
+
+/** The Currency whose numeric is `numeric`, or undefined if no row has it. */
+export function byNumeric(numeric: number): Currency | undefined {
+  return byNumericIndex.get(numeric);
+}

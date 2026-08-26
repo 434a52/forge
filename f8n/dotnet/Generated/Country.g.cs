@@ -11,4 +11,47 @@ public partial class Country
     public static readonly Country FRA = new Country("FR", "FRA", 250, "France", 33, Currency.EUR, "Europe/Paris");
     public static readonly Country PRT = new Country("PT", "PRT", 620, "Portugal", 351, Currency.EUR, "Europe/Lisbon");
     public static readonly Country USA = new Country("US", "USA", 840, "United States", 1, Currency.USD, "America/New_York");
+    public static readonly Country IRL = new Country("IE", "IRL", 372, "Ireland", 353, Currency.EUR, "Europe/Dublin");
+
+    private static readonly Dictionary<string, Country> ByAlpha3Index = new()
+    {
+        ["GBR"] = GBR,
+        ["DEU"] = DEU,
+        ["FRA"] = FRA,
+        ["PRT"] = PRT,
+        ["USA"] = USA,
+        ["IRL"] = IRL,
+    };
+
+    /// <summary>The Country whose alpha3 is <paramref name="alpha3"/>, or null if no row has it.</summary>
+    public static Country? ByAlpha3(string alpha3) =>
+        ByAlpha3Index.TryGetValue(alpha3, out var found) ? found : null;
+
+    private static readonly Dictionary<string, Country> ByAlpha2Index = new()
+    {
+        ["GB"] = GBR,
+        ["DE"] = DEU,
+        ["FR"] = FRA,
+        ["PT"] = PRT,
+        ["US"] = USA,
+        ["IE"] = IRL,
+    };
+
+    /// <summary>The Country whose alpha2 is <paramref name="alpha2"/>, or null if no row has it.</summary>
+    public static Country? ByAlpha2(string alpha2) =>
+        ByAlpha2Index.TryGetValue(alpha2, out var found) ? found : null;
+
+    private static readonly Dictionary<int, Country> ByNumericIndex = new()
+    {
+        [826] = GBR,
+        [276] = DEU,
+        [250] = FRA,
+        [620] = PRT,
+        [840] = USA,
+        [372] = IRL,
+    };
+
+    /// <summary>The Country whose numeric is <paramref name="numeric"/>, or null if no row has it.</summary>
+    public static Country? ByNumeric(int numeric) =>
+        ByNumericIndex.TryGetValue(numeric, out var found) ? found : null;
 }

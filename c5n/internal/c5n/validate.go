@@ -38,6 +38,7 @@ func Validate(schema Schema, tables []*Table) error {
 
 	index, duplicates := buildKeyIndex(schema, tables)
 	problems = append(problems, duplicates...)
+	problems = append(problems, duplicateLookupValues(schema, tables)...)
 	problems = append(problems, unresolvedReferences(schema, tables, index)...)
 
 	if len(problems) == 0 {
@@ -403,6 +404,48 @@ func missingEnvelope(t *Table, typ *Type, series *Type) []string {
 			problems = append(problems, fmt.Sprintf(
 				"%s, %s: no %q field, and %s declares it as the envelope that keys an entry",
 				t.Source, rowLabel(row, typ, i), f.Name, series.Name))
+		}
+	}
+	return problems
+}
+
+// duplicateLookupValues reports a secondary index whose values are not unique.
+//
+// A lookup is a promise that a value finds one row. Two rows sharing one alpha-2 code is the
+// same collision as two rows sharing an identity — and it hides in the same way, since
+// neither file looks wrong on its own. Checked per *type*, across every file that feeds it,
+// for that reason.
+func duplicateLookupValues(schema Schema, tables []*Table) []string {
+	// type -> field -> value -> where it was first seen
+	seen := map[string]map[string]map[string]rowRef{}
+	var problems []string
+
+	for _, t := range tables {
+		typ, ok := schema[t.ElemType]
+		if !ok || len(typ.Lookup) == 0 {
+			continue
+		}
+		if _, ok := seen[typ.Name]; !ok {
+			seen[typ.Name] = map[string]map[string]rowRef{}
+		}
+
+		for _, field := range typ.Lookup {
+			if _, ok := seen[typ.Name][field]; !ok {
+				seen[typ.Name][field] = map[string]rowRef{}
+			}
+			for i, row := range t.Rows {
+				value, ok := row[field]
+				if !ok {
+					continue // a missing declared field is reported by the writers
+				}
+				if first, clash := seen[typ.Name][field][value]; clash {
+					problems = append(problems, fmt.Sprintf(
+						"%s, %s: %s %q is already used at %s row %d, so a lookup by %s could not say which row it means",
+						t.Source, rowLabel(row, typ, i), field, value, first.Source, first.Row, field))
+					continue
+				}
+				seen[typ.Name][field][value] = rowRef{Source: t.Source, Row: i + 1}
+			}
 		}
 	}
 	return problems

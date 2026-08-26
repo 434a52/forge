@@ -11,12 +11,17 @@
 Currency:
   external: true
   key: code                    # identity → names Currency.GBP; the defaultCurrency ref target
+  lookup: [numeric]            # also indexed: ISO 4217 numeric, which foreign payloads carry
   # symbol = default/canonical symbol only; locale-specific presentation is l10n's
   fields: { code: string, numeric: int, name: string, symbol: string, minorUnits: int }
 
 Country:
   external: true
-  key: alpha3                  # identity → names Country.GBR
+  key: alpha3                  # identity → names Country.GBR, and the ONLY form on the wire
+  # Also indexed. A country arrives from foreign systems as an alpha-2 far more often than as
+  # its identity, and as a numeric code from older ones — but those are *ingestion* forms, not
+  # wire forms: accepting them on the wire would give one value three encodings.
+  lookup: [alpha2, numeric]
   fields: { alpha2: string, alpha3: string, numeric: int, name: string, callingCode: int,
             defaultCurrency: Currency, capitalTz: string }
 

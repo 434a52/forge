@@ -231,6 +231,29 @@ func emitCSharp(t *Table, typ *Type, schema Schema, target Target, schemaSrc str
 		fmt.Fprintf(&body, "    public static readonly %s %s = %s;\n", typ.Name, name, expr)
 	}
 
+	for _, field := range indexFields(typ) {
+		entries, err := indexEntries(t, typ, field, ctx)
+		if err != nil {
+			return "", err
+		}
+		keyType, err := scalarTypeName(field.Type, "csharp")
+		if err != nil {
+			return "", err
+		}
+		accessor := accessorName(field.Name)
+
+		fmt.Fprintf(&body, "\n    private static readonly Dictionary<%s, %s> %sIndex = new()\n    {\n",
+			keyType, typ.Name, accessor)
+		for _, entry := range entries {
+			fmt.Fprintf(&body, "        [%s] = %s,\n", entry[0], entry[1])
+		}
+		body.WriteString("    };\n\n")
+		fmt.Fprintf(&body, "    /// <summary>The %s whose %s is <paramref name=\"%s\"/>, or null if no row has it.</summary>\n",
+			typ.Name, field.Name, field.Name)
+		fmt.Fprintf(&body, "    public static %s? %s(%s %s) =>\n        %sIndex.TryGetValue(%s, out var found) ? found : null;\n",
+			typ.Name, accessor, keyType, field.Name, accessor, field.Name)
+	}
+
 	var b strings.Builder
 	b.WriteString(csharpHeader(schemaSrc + " + " + t.Source))
 	fmt.Fprintf(&b, "namespace %s;\n\n", target.Namespace)
@@ -307,6 +330,27 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 		fmt.Fprintf(&body, "export const %s = %s;\n", name, expr)
 	}
 
+	for _, field := range indexFields(typ) {
+		entries, err := indexEntries(t, typ, field, ctx)
+		if err != nil {
+			return "", err
+		}
+		keyType, err := scalarTypeName(field.Type, "ts")
+		if err != nil {
+			return "", err
+		}
+		accessor := lowerFirst(accessorName(field.Name))
+
+		fmt.Fprintf(&body, "\nconst %sIndex = new Map<%s, %s>([\n", accessor, keyType, typ.Name)
+		for _, entry := range entries {
+			fmt.Fprintf(&body, "  [%s, %s],\n", entry[0], entry[1])
+		}
+		body.WriteString("]);\n\n")
+		fmt.Fprintf(&body, "/** The %s whose %s is `%s`, or undefined if no row has it. */\n", typ.Name, field.Name, field.Name)
+		fmt.Fprintf(&body, "export function %s(%s: %s): %s | undefined {\n  return %sIndex.get(%s);\n}\n",
+			accessor, field.Name, keyType, typ.Name, accessor, field.Name)
+	}
+
 	var b strings.Builder
 	b.WriteString(tsHeader(schemaSrc + " + " + t.Source))
 	// The hand-written types live one dir up from the generated file, by convention. Import
@@ -323,6 +367,85 @@ func emitTS(t *Table, typ *Type, schema Schema, schemaSrc string) (string, error
 	b.WriteString("\n")
 	b.WriteString(body.String())
 	return b.String(), nil
+}
+
+// Lookups — the generated side of "find the row this value names".
+//
+// A table always gets an index on its `key:`, and one more per field listed in `lookup:`.
+// The key index is what a wire parser uses to resolve a reference back to its row; the extra
+// ones exist because a value arrives from foreign systems in forms that are not the identity
+// — a Country is identified by its alpha-3 code and turns up as an alpha-2 constantly.
+//
+// c5n emits one *precise* accessor per index and stops there. A dispatcher that takes "a
+// code, whatever form it is in" needs to know that alpha-2 and alpha-3 have disjoint widths,
+// which is domain knowledge about ISO 3166 and not a fact the schema holds — so it is
+// hand-written beside the type, like every other algorithm.
+//
+// A miss returns null/undefined rather than throwing: a code that names no row is an
+// ordinary outcome when the value came from somewhere else, which is the whole point of a
+// lookup, and the same reasoning as an as-of date outside its series.
+
+// indexFields is the key followed by any declared lookup fields, in declaration order.
+func indexFields(typ *Type) []Field {
+	var fields []Field
+	for _, f := range typ.Fields {
+		if f.Name == typ.Key {
+			fields = append(fields, f)
+		}
+	}
+	for _, name := range typ.Lookup {
+		for _, f := range typ.Fields {
+			if f.Name == name {
+				fields = append(fields, f)
+			}
+		}
+	}
+	return fields
+}
+
+// scalarTypeName is how a target spells a declared scalar, for an index's key type. Only
+// scalars reach here — checkLookup rejects anything else at the declaration.
+func scalarTypeName(declType, target string) (string, error) {
+	names := map[string]map[string]string{
+		"string":  {"csharp": "string", "ts": "string"},
+		"int":     {"csharp": "int", "ts": "number"},
+		"decimal": {"csharp": "decimal", "ts": "number"},
+		"bool":    {"csharp": "bool", "ts": "boolean"},
+	}
+	if name, ok := names[declType][target]; ok {
+		return name, nil
+	}
+	return "", fmt.Errorf("no %s type for scalar %q", target, declType)
+}
+
+// accessorName turns a field name into the accessor that finds a row by it: alpha2 -> ByAlpha2.
+//
+// Casing an *identifier* here, having refused to case an enum member, is not a contradiction:
+// a member name is a published wire token and this is a method name c5n chose. Nothing
+// outside the generated code depends on how it is spelled.
+func accessorName(field string) string {
+	return "By" + strings.ToUpper(field[:1]) + field[1:]
+}
+
+// indexEntries renders each row as (emitted key expression, constant name) for one index.
+func indexEntries(t *Table, typ *Type, field Field, ctx valueContext) ([][2]string, error) {
+	entries := make([][2]string, 0, len(t.Rows))
+	for _, row := range t.Rows {
+		name, err := rowName(row, typ)
+		if err != nil {
+			return nil, err
+		}
+		text, ok := row[field.Name]
+		if !ok {
+			return nil, fmt.Errorf("%s.%s: field %s: missing from row", typ.Name, name, field.Name)
+		}
+		key, err := emitValue(field.Type, text, ctx, 0)
+		if err != nil {
+			return nil, fmt.Errorf("%s.%s: field %s: %w", typ.Name, name, field.Name, err)
+		}
+		entries = append(entries, [2]string{key, name})
+	}
+	return entries, nil
 }
 
 // A series emits one unit per *named* series — `VatStandard`, not `TaxRate` — because the
@@ -541,6 +664,11 @@ func emitEnumTS(typ *Type, schemaSrc string) string {
 // The headers take one already-joined source list rather than schema + data, because not
 // every emitted unit has a data file: an enum's members are declared, so it is generated
 // from the schema alone.
+
+// lowerFirst is the TypeScript spelling of an accessor c5n named: ByAlpha2 -> byAlpha2.
+func lowerFirst(name string) string {
+	return strings.ToLower(name[:1]) + name[1:]
+}
 
 func csharpHeader(sources string) string {
 	return "// <auto-generated>\n" +

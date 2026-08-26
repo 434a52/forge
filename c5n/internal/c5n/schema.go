@@ -21,6 +21,7 @@ type Type struct {
 	External bool
 	Key      string
 	Fields   []Field           // in declaration order — this is the ctor arg order
+	Lookup   []string          // additional unique fields to emit an index for
 	Members  []string          // enum members, in declaration order
 	Envelope []Field           // series only: the fields that key an entry, not construct it
 	Emit     map[string]string // target -> construction recipe; nil = positional-ctor convention
@@ -127,6 +128,12 @@ func parseTypeDecl(decl *yaml.Node, t *Type) error {
 			t.External = val.Value == "true"
 		case "key":
 			t.Key = val.Value
+		case "lookup":
+			lookup, err := parseMembers(val) // same shape: a list of field names
+			if err != nil {
+				return fmt.Errorf("lookup: %w", err)
+			}
+			t.Lookup = lookup
 		case "fields":
 			fields, err := parseFields(val)
 			if err != nil {
@@ -234,6 +241,9 @@ func checkTypeDecl(t *Type) error {
 	if len(t.Envelope) > 0 && !t.IsSeries() {
 		return fmt.Errorf("an envelope is only declared on `kind: %s`", KindSeries)
 	}
+	if err := checkLookup(t); err != nil {
+		return err
+	}
 
 	if t.IsSeries() {
 		switch {
@@ -275,6 +285,53 @@ func checkTypeDecl(t *Type) error {
 			return fmt.Errorf("member %q is declared twice", m)
 		}
 		seen[m] = true
+	}
+	return nil
+}
+
+// checkLookup validates the declared secondary indexes.
+//
+// `key:` names the identity — the constant's name, the reference target, and the form the
+// value takes on the wire. `lookup:` names *additional* fields that are also unique and
+// worth finding a row by: a Country is identified by its alpha-3 code, but arrives from
+// foreign systems as an alpha-2 or a numeric one just as often.
+//
+// The two are deliberately different declarations rather than a list of equals. Making them
+// interchangeable would leave nothing to say which form is canonical, and a reference type
+// with two encodings is the thing f8n's wire format exists to prevent.
+func checkLookup(t *Type) error {
+	if len(t.Lookup) == 0 {
+		return nil
+	}
+	if t.Key == "" {
+		return fmt.Errorf("`lookup:` needs a `key:` — an index is a second way to find a row, not the first")
+	}
+
+	declared := make(map[string]bool, len(t.Fields))
+	for _, f := range t.Fields {
+		declared[f.Name] = true
+	}
+
+	fieldType := make(map[string]string, len(t.Fields))
+	for _, f := range t.Fields {
+		fieldType[f.Name] = f.Type
+	}
+
+	seen := make(map[string]bool, len(t.Lookup))
+	for _, name := range t.Lookup {
+		switch {
+		case !declared[name]:
+			return fmt.Errorf("lookup field %q is not declared on this type", name)
+		case name == t.Key:
+			return fmt.Errorf("lookup field %q is already the key, which is always indexed", name)
+		case seen[name]:
+			return fmt.Errorf("lookup field %q is listed twice", name)
+		case !isScalar(fieldType[name]):
+			// A reference or a nested value has no obvious key to index by, and inventing
+			// one would be guessing at semantics nobody has asked for yet.
+			return fmt.Errorf("lookup field %q is a %s; only scalar fields can be indexed", name, fieldType[name])
+		}
+		seen[name] = true
 	}
 	return nil
 }

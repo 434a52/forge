@@ -8,3 +8,46 @@ export const DEU = new Country("DE", "DEU", 276, "Germany", 49, EUR, "Europe/Ber
 export const FRA = new Country("FR", "FRA", 250, "France", 33, EUR, "Europe/Paris");
 export const PRT = new Country("PT", "PRT", 620, "Portugal", 351, EUR, "Europe/Lisbon");
 export const USA = new Country("US", "USA", 840, "United States", 1, USD, "America/New_York");
+export const IRL = new Country("IE", "IRL", 372, "Ireland", 353, EUR, "Europe/Dublin");
+
+const byAlpha3Index = new Map<string, Country>([
+  ["GBR", GBR],
+  ["DEU", DEU],
+  ["FRA", FRA],
+  ["PRT", PRT],
+  ["USA", USA],
+  ["IRL", IRL],
+]);
+
+/** The Country whose alpha3 is `alpha3`, or undefined if no row has it. */
+export function byAlpha3(alpha3: string): Country | undefined {
+  return byAlpha3Index.get(alpha3);
+}
+
+const byAlpha2Index = new Map<string, Country>([
+  ["GB", GBR],
+  ["DE", DEU],
+  ["FR", FRA],
+  ["PT", PRT],
+  ["US", USA],
+  ["IE", IRL],
+]);
+
+/** The Country whose alpha2 is `alpha2`, or undefined if no row has it. */
+export function byAlpha2(alpha2: string): Country | undefined {
+  return byAlpha2Index.get(alpha2);
+}
+
+const byNumericIndex = new Map<number, Country>([
+  [826, GBR],
+  [276, DEU],
+  [250, FRA],
+  [620, PRT],
+  [840, USA],
+  [372, IRL],
+]);
+
+/** The Country whose numeric is `numeric`, or undefined if no row has it. */
+export function byNumeric(numeric: number): Country | undefined {
+  return byNumericIndex.get(numeric);
+}

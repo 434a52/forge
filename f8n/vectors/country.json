@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "subject": "f8n.Country",
+  "groups": [
+    {
+      "rule": "find — an ingestion helper that accepts a country code in any of its forms and answers with the alpha-3 identity, or \"(none)\". NOT what the wire uses: a country travels as its alpha-3 and nothing else, because three accepted forms would give one value three encodings. Leniency is safe here only because the forms occupy disjoint shapes — two letters, three letters, three digits — so nothing is guessed.",
+      "cases": [
+        {
+          "id": "find-alpha3",
+          "op": "find",
+          "in": [
+            "GBR"
+          ],
+          "out": "GBR"
+        },
+        {
+          "id": "find-alpha2",
+          "op": "find",
+          "in": [
+            "GB"
+          ],
+          "out": "GBR"
+        },
+        {
+          "id": "find-numeric",
+          "op": "find",
+          "in": [
+            "826"
+          ],
+          "out": "GBR"
+        },
+        {
+          "id": "find-alpha2-euro",
+          "op": "find",
+          "in": [
+            "DE"
+          ],
+          "out": "DEU"
+        },
+        {
+          "id": "find-numeric-euro",
+          "op": "find",
+          "in": [
+            "250"
+          ],
+          "out": "FRA"
+        }
+      ]
+    },
+    {
+      "rule": "find — case is normalised, and this is the group with a real trap in it. C# must use ToUpperInvariant rather than ToUpper: under a Turkish locale \"ie\".ToUpper() is \"İE\", a dotted capital I, and Ireland stops resolving on machines in one country. JavaScript's toUpperCase is locale-independent by default, so the trap is one-sided — which is exactly why the normalisation is written deliberately in both rather than left to each caller.",
+      "cases": [
+        {
+          "id": "find-lowercase-alpha2",
+          "op": "find",
+          "in": [
+            "gb"
+          ],
+          "out": "GBR"
+        },
+        {
+          "id": "find-lowercase-alpha3",
+          "op": "find",
+          "in": [
+            "gbr"
+          ],
+          "out": "GBR"
+        },
+        {
+          "id": "find-mixed-case",
+          "op": "find",
+          "in": [
+            "gBr"
+          ],
+          "out": "GBR"
+        },
+        {
+          "id": "find-turkish-i",
+          "op": "find",
+          "in": [
+            "ie"
+          ],
+          "out": "IRL",
+          "note": "The dotted-I case. Ireland's alpha-2 is IE, so a culture-sensitive upper-casing turns this into \"İE\" and finds nothing — but only when the process runs under a Turkish locale."
+        },
+        {
+          "id": "find-turkish-i-upper",
+          "op": "find",
+          "in": [
+            "IE"
+          ],
+          "out": "IRL"
+        }
+      ]
+    },
+    {
+      "rule": "find — no match. A code that names no row is an ordinary outcome when the value came from somewhere else, so it answers rather than throwing.",
+      "cases": [
+        {
+          "id": "find-unknown-alpha2",
+          "op": "find",
+          "in": [
+            "XX"
+          ],
+          "out": "(none)"
+        },
+        {
+          "id": "find-unknown-alpha3",
+          "op": "find",
+          "in": [
+            "XXX"
+          ],
+          "out": "(none)"
+        },
+        {
+          "id": "find-unknown-numeric",
+          "op": "find",
+          "in": [
+            "999"
+          ],
+          "out": "(none)"
+        },
+        {
+          "id": "find-empty",
+          "op": "find",
+          "in": [
+            ""
+          ],
+          "out": "(none)"
+        },
+        {
+          "id": "find-too-short",
+          "op": "find",
+          "in": [
+            "G"
+          ],
+          "out": "(none)"
+        },
+        {
+          "id": "find-too-long",
+          "op": "find",
+          "in": [
+            "GBRX"
+          ],
+          "out": "(none)"
+        },
+        {
+          "id": "find-mixed-digits-letters",
+          "op": "find",
+          "in": [
+            "8G6"
+          ],
+          "out": "(none)",
+          "note": "Three characters but neither all-letters nor all-digits, so it matches no form."
+        }
+      ]
+    },
+    {
+      "rule": "properties — invariants that must hold for every input, so the expected value is \"true\" and comes from the rule rather than from any implementation.",
+      "cases": [
+        {
+          "id": "prop-forms-agree-gb",
+          "op": "property.formsAgree",
+          "in": [
+            "GB",
+            "GBR",
+            "826"
+          ],
+          "out": "true",
+          "note": "All three forms of one country find the same row. This is what makes accepting three forms a convenience rather than three different answers."
+        },
+        {
+          "id": "prop-forms-agree-ie",
+          "op": "property.formsAgree",
+          "in": [
+            "IE",
+            "IRL",
+            "372"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-forms-agree-us",
+          "op": "property.formsAgree",
+          "in": [
+            "US",
+            "USA",
+            "840"
+          ],
+          "out": "true"
+        }
+      ]
+    }
+  ]
+}

@@ -8,6 +8,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { findCountry } from "./countries.js";
 import type { Currency } from "./currency.js";
 import { EffectiveDated } from "./effectivedated.js";
 import { BHD, EUR, GBP, JPY, USD } from "./generated/currency.data.js";
@@ -49,6 +50,7 @@ const knownOperations = new Map<string, Set<string>>([
   ["f8n.EffectiveDated", new Set([
     "asOf", "property.asOfAtEachBoundary", "property.orderIndependence",
   ])],
+  ["f8n.Country", new Set(["find", "property.formsAgree"])],
   ["f8n.Rounding", new Set(["divide", "property.signSymmetric"])],
   ["f8n.Money", new Set([
     "fromMajor", "fromMinor", "multiplyByRate", "divideBy",
@@ -195,6 +197,23 @@ function orderIsTotal(ascending: string[]): string {
   return "true";
 }
 
+/**
+ * Every form of one country finds the same row. This is what makes accepting three forms a
+ * convenience rather than three different answers.
+ */
+function formsAgree(alpha2: string, alpha3: string, numeric: string): string {
+  const byTwo = findCountry(alpha2);
+  const byThree = findCountry(alpha3);
+  const byNumber = findCountry(numeric);
+  if (byTwo === undefined || byThree === undefined || byNumber === undefined) {
+    return `one of ${alpha2}/${alpha3}/${numeric} found nothing`;
+  }
+  if (byTwo.alpha3 !== byThree.alpha3 || byTwo.alpha3 !== byNumber.alpha3) {
+    return `${alpha2} found ${byTwo.alpha3}, ${alpha3} found ${byThree.alpha3}, ${numeric} found ${byNumber.alpha3}`;
+  }
+  return "true";
+}
+
 /** Every entry is in effect on the day it takes effect. */
 function asOfAtEachBoundary(): string {
   for (const [from, expected] of fixtureEntries) {
@@ -272,6 +291,10 @@ function execute(subject: string, op: string, inputs: string[]): string {
       return minorMatchesMajor(inputs[0], inputs[1], inputs[2]);
     case "f8n.Money.property.addSubtractIsExact":
       return addSubtractIsExact(inputs[0], inputs[1], inputs[2]);
+    case "f8n.Country.find":
+      return findCountry(inputs[0])?.alpha3 ?? "(none)";
+    case "f8n.Country.property.formsAgree":
+      return formsAgree(inputs[0], inputs[1], inputs[2]);
     default:
       throw new Error(`unknown op ${op} for ${subject}`);
   }

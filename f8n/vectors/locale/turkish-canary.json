@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "subject": "f8n.CultureCanary",
+  "groups": [
+    {
+      "rule": "Not a conformance check — a check on the *environment*. The hostile-locale CI step is only meaningful if the locale actually applied, and a step that silently ran under the default locale would pass for entirely the wrong reason and read as assurance it never provided. This asserts the process really is running as Turkish: an ASCII 'i' upper-cased under the current culture is a dotted capital I. C# only, and run only by that step — JavaScript's toUpperCase is locale-independent, which is the asymmetry the canary exists to make visible.",
+      "cases": [
+        {
+          "id": "canary-turkish-dotted-i",
+          "op": "upperCaseI",
+          "in": [],
+          "out": "İ",
+          "note": "Fails with \"I\" if the locale did not take effect. That failure is the useful one: it says the hostile run is not hostile."
+        }
+      ]
+    }
+  ]
+}

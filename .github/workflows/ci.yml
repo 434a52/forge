@@ -124,6 +124,31 @@ jobs:
               -runner "ts=node f8n/ts/dist/run-vector.js"
           done
 
+      # The same datasets under a hostile locale. Most of f8n cannot be moved by one — the
+      # parsers are character walks and the formatting is invariant — but Country.Find
+      # normalises case, and a C# ToUpper() instead of ToUpperInvariant() turns "ie" into
+      # "İE" under Turkish and loses Ireland. That failure is invisible to the run above.
+      #
+      # The canary runs first and asserts the locale actually applied. Without it a runner
+      # that ignored LC_ALL would pass this step for entirely the wrong reason, which is
+      # worse than not having it.
+      - name: conform under a hostile locale
+        working-directory: c5n
+        env:
+          LC_ALL: tr_TR.UTF-8
+          LANG: tr_TR.UTF-8
+        run: |
+          cd ..
+          "$RUNNER_TEMP/conform" \
+            -vectors f8n/vectors/locale/turkish-canary.json \
+            -runner "csharp=dotnet run --project f8n/dotnet/RunVector --no-build --"
+          for vectors in f8n/vectors/*.json; do
+            "$RUNNER_TEMP/conform" \
+              -vectors "$vectors" \
+              -runner "csharp=dotnet run --project f8n/dotnet/RunVector --no-build --" \
+              -runner "ts=node f8n/ts/dist/run-vector.js"
+          done
+
   ts:
     name: ts (generated output typechecks)
     runs-on: ubuntu-latest
