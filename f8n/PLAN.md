@@ -89,11 +89,22 @@ piece of behaviour left.
 - **`FixedDecimal`** — the explicit precision space (FX intermediates, accrual, unit prices).
   `divide-with-rounding` already lives outside `Money` ready for it.
 - **`ExchangeRate`, `PhoneNumber`, `Locale`** — the rest of the primitive scope.
+- **Cash rounding** — CLDR carries `cashDigits` / `cashRounding` beside `digits`, and
+  `Currency` models only the accounting scale, so `f8n` cannot express CHF rounding to 0.05.
+  The lean is an explicit `Money.RoundToCash` over new currency fields rather than a change
+  to the amount grammar, so an accounting `CHF 12.34` stays a valid value that simply is not
+  payable in coins. Lands with the pipeline that supplies the data.
 - **The canonical-data pipeline** — cron → diff → PR, gated on the `iso-codes` licence
   decision in `DESIGN.md` → *Design agenda*.
 - **Packaging** — npm (ESM) + NuGet, versioning, tree-shaking structure.
 
 ## Change log
+- 2026-08-26: **data sourcing resolved to CLDR, and cash rounding recorded as a gap.** The
+  licence question that had been gating the pipeline is closed — see `DESIGN.md` — so the
+  source pipeline moves from blocked to merely unbuilt. Reading CLDR's structure to settle it
+  turned up a second scale: `cashDigits` / `cashRounding` beside `digits`, which `Currency`
+  does not model. Filed under Rooms with a lean rather than decided, since it lands with the
+  data that motivates it.
 - 2026-08-26: created, at the point f8n stopped being one type at a time and acquired a
   sequence worth writing down. Records Phase A as landed — `Percentage`, the reference
   tables, `LocalDate`, `EffectiveDated<T>`, `TaxRate`, `divide-with-rounding` and `Money` —
