@@ -150,6 +150,25 @@ Surface beyond formatting/messages (much of it C#-side glue; each item has been 
 - **Analysers** — Roslyn (C#) / ESLint (TS) flag problems (hard-coded strings, missing keys, bad hints) at build.
 - **Enum localization** — each enum member gets a localized label via the key convention `EnumName:Member`; typed access generated. (The "helpers (C# enums)" from the original sketch.)
 
+## Ordinals — absent, and named as such
+CLDR defines **ordinal** plural rules separately from cardinal ones (`ordinals.xml`,
+`<plurals type="ordinal">`, roughly 120–130 locales). This design has no equivalent of ICU's
+`selectordinal`, and until 2026-08-27 nothing recorded that the capability existed.
+
+It is a real gap, not a rounding error: **English needs four ordinal categories** — `one`
+(1st, 21st), `two` (2nd, 22nd), `few` (3rd, 23rd), `other` (4th, and 11th–13th) — where it
+needs two cardinal ones. And **the same category name means different things in the two
+tables**: Welsh's `zero` is `n = 0` for cardinals and `n = 0,7,8,9` for ordinals.
+
+That last point is why ICU keeps `plural` and `selectordinal` as separate keywords — **the hint
+selects the rule table**. The hint-driven model here would express it correctly the moment a
+hint existed; the gap is the hint, not the architecture, so adding it later is additive.
+
+**Deferred, not rejected.** Ordinals are rarer in product copy than they look — "1st January"
+is a `date` hint's job, and rankings are uncommon — so the cost of waiting is low. What was not
+acceptable was leaving it unmentioned, since an absent capability nobody has named reads as an
+oversight rather than a decision. See `codegen-shape-test.md` → case 7.
+
 ## Design agenda
 - [x] **Source of truth** → YAML, en-GB authoritative, namespaced per scope.
 - [x] **Scope / MVP** — v1 formatters: `currency`/`currency-short`/`currency-N` · `number`/`number-N` · `percent-N` · `date-{variant}` · `time-{variant}` · `plural` (Welsh-level) · `select`. *Later:* lists · units · relative-time · ordinal.
@@ -192,6 +211,7 @@ A formatter with a fixed locale, a single currency and bounded amounts can be en
 - 2026-07-03: cleared the five small opens (static digits · `=N` exact · parse=compact-money+decimal only · clobber=keep-human+`suggestion` · context=key-path+optional+screenshot); added **Translator UI (l10n × a11y)** section — human-gate surface with a11y-audit screenshots, placeholder chips, key↔control linkage seam.
 - 2026-07-03: **Runtime & integration** section — locale scope (never `CurrentCulture`, `AsyncLocal`/`IDisposable`), m2m propagation, JWT extraction, setup extensions, analysers, enum localization.
 - 2026-07-03: **Translation pipeline** section — en-GB canonical + per-locale mirror, checksum-gated re-translate with `approved:false`, placeholder repair+validate, plural expansion, orphan pruning, deploy gate, compliance flags (no PII to Anthropic; `requiresProfessional`).
+- 2026-08-27: **ordinals named as a deferred gap, and the exact-match syntax settled.** CLDR defines ordinal rules separately (`ordinals.xml`, ~120–130 locales) and this design had no `selectordinal` equivalent and no mention that one was missing. English alone needs four ordinal categories against two cardinal, and **the same name means different things in the two tables** — Welsh's `zero` is `n = 0` for cardinals and `n = 0,7,8,9` for ordinals — which is exactly why ICU keeps the two keywords separate: the hint selects the table. The gap is the hint, not the architecture, so it stays additive. Separately, `codegen-shape-test.md` settled exact-value matches on **bare numeric keys** (`0=`, `1=`) rather than ICU's `=0=` or a word like `none`: numbers cannot collide with category names, the doubled `=` was an artifact of this design's `key=value` pipes rather than anything ICU requires, and dropping the sigil removes the second-`=` parse wrinkle.
 - 2026-08-27: **started the pressure test the `candidate` banner has been asking for since 2026-07-04** — `codegen-shape-test.md`, twelve message shapes with stand-ins so the walk can begin before the real corpus is to hand. One finding before any case was walked, and it corrects this doc: the codegen structure describes **one tree where there are two** — a locale-neutral tree of typed shims, and per-locale trees of message data — with the consequence that a signature must derive from the canonical message alone. Deliberately paper-only: the cost of finding the shape does not hold is a document now, or `c5n` grown to serve it later.
 - 2026-08-26: **stated that the locale never supplies the currency**, and that cash rounding is not a formatting concern. The API already had the right shape — every formatter takes both a `Money` and a `locale` — but the rule was implied rather than written, and this is the layer where the temptation lives: a function that already receives a locale is one step from inferring a currency from it, which is the silent failure that formats cleanly and reads plausibly and is wrong. Recorded with the reason presentation needs both axes (USD is `$` in en-US and `US$` in en-GB) and a pointer to f8n's new section. Also fenced off **cash rounding** as f8n's (`Money.RoundToCash`, gated on the CLDR pipeline): a formatter that rounded to a cash scale would be changing the number it was asked to render.
 - 2026-07-03: **Format/parse boundary** — value-formatting imported from `l10n` (tree-shakable free functions / C# extensions), not on the `f8n` type (invariant-serialization only); `currency-short` = compact (lossy, human-input); strict-format/lenient-parse asymmetry.

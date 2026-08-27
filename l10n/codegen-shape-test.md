@@ -92,135 +92,75 @@ interpreter needs its own scope handling, the conformance surface is bigger than
 **Forces:** the signature is the **union** of all branches' arguments, so some are unused on
 any given call. Are they optional, or required-and-ignored? Nullable in C#?
 
-### 7. ⚠ Exact-value match — **REAL**, and the syntax should change
+### 7. ⚠ Exact-value match — **REAL, resolved**
 **Real:** `{count:plural|none=no accounts|1=account|other=accounts}` — how it would be written
 where zero is reachable.
-**Forces:** the ordering rule (exact before category, a conformance rule either way), whether
-an exact match is a distinct part kind or a category with a funny name — and two syntax
-findings, one adopting and one rejecting.
 
-> **Superseded below.** The bare-number recommendation was overturned once the translation
-> pipeline was brought into the argument. Kept for the reasoning, which still holds on its own
-> terms; the resolution is *Word-based keys throughout*, further down.
+**Resolved: bare numeric keys — `0=`, `1=`.** No `none`, no `=` sigil.
 
-**Adopt the bare number: `1=`, not `=1=`.** `DESIGN.md` uses ICU's `=0` sigil and pays for it
-with a documented parse wrinkle — *"a key starting with `=` splits on the second `="`*. But
-category names are alphabetic (`zero one two few many other`) and exact values are numeric, so
-**a bare number cannot collide with a category** and the sigil buys nothing. Drop it and the
-uniform split-on-first-`=` rule covers every key. The whole thing reduces to one line a
-translator can hold: **numbers are exact, words are categories.**
+*This one reversed twice before settling; the reasoning is kept because each turn found
+something, and the final position rests on the last of them.*
 
-**Reject `none=`, and reject the tempting collapse behind it.** The instinct that a uniform
-word list reads better than a mix is right, and it leads somewhere worse: if `zero` and `none`
-are both words, why not drop `none` and let **`zero` mean "n = 0" everywhere** — a real category
-where the locale has one, an exact match where it does not? It would remove exact matches from
-the syntax altogether. It is also **wrong, and dangerously so.**
+**Why not ICU's `=0=`.** The doubled `=` is an artifact of pairing ICU's `=N` with this
+design's `key=value` pipes — ICU never makes you write it. It also forces `DESIGN.md`'s
+second-`=` parse wrinkle. Dropping the sigil removes both, and loses nothing: **categories are
+words and exact values are numbers**, so a bare number can never collide with a category name.
+One rule — split on the first `=` — covers every key.
 
-**Latvian's `zero` category is `n % 10 = 0 or n % 100 = 11..19 or v = 2 and f % 100 = 11..19`**
-— it matches 0, 10, 11…19, 20, 30, 40. A message using `zero` to mean "none" renders **"no
-accounts" for twenty accounts** in Latvian.
+**Why not `none`.** It is the *divergence* from CLDR, not the alignment: ICU has `=0` and no
+`none`. Under a stance of *stay closer to CLDR, simplify only where we should*, it loses. And
+it cannot be extended — see the principle below — so choosing it would drop exact matches
+beyond zero permanently.
 
-Verified against `common/supplemental/plurals.xml`. Ten locale codes carry a `zero` category,
-and they split two ways:
+**Why the word/number mix is not arbitrary.** ICU makes the same distinction, writing `=0` and
+`one` in the same braces. Numeric-versus-word is CLDR's own line; this just spells it without
+the redundant character.
 
-| condition | locales |
-|---|---|
-| `n = 0` | `cy`, `ar`, `ars`, `kw`, `cv`, `ksh`, `blo`, `lag` |
-| `n % 10 = 0 or n % 100 = 11..19 or v = 2 and f % 100 = 11..19` | **`lv`, `prg`** |
+#### The principle: borrow a category name and you inherit its grammar, not its number
 
-**And this is the part worth keeping.** Welsh's `zero` *is* `n = 0` — so the collapse would have
-worked perfectly in Welsh, the language anyone would reach for as the six-category test case.
-It fails only in Latvian (Prussian being a revival with negligible use). **Validated against the
-obvious representative locale, the bug ships.**
+Verified against `plurals.xml` and `ordinals.xml`. Three instances, each stronger than the last:
 
-That is the *uniform correctness or uniform wrongness* problem one layer up from where this
-design usually worries about it, and it is directly actionable: **the fixture locale set has to
-name Latvian specifically**, not merely "a language with many categories".
+- **`zero` is not 0.** Latvian's cardinal `zero` is `n % 10 = 0 or n % 100 = 11..19 …` — it
+  matches 0, 10, 11…19, 20, 30. `zero`-as-"none" renders *"no accounts"* for twenty accounts.
+  (Eight locales do define it as `n = 0`; `lv` and `prg` do not, and one is enough.)
+- **`two` is not 2.** Breton's `two` is `n % 10 = 2 and n % 100 != 12,72,92` → 2, 22, 32, 42 but
+  **not** 12, 72, 92. Scottish Gaelic's is `n = 2,12`; Slovenian's 2, 102, 202; Manx's 2, 12,
+  22. Six-plus languages, against Latvian's one.
+- **The same word differs *within* one language.** Welsh's `zero` is `n = 0` for **cardinals**
+  and `n = 0,7,8,9` for **ordinals**. Same name, same locale, two rule tables, different sets.
 
-So the separation of exact matches from categories is load-bearing rather than inherited — and
-this is *why ICU has `=0` at all*, which reads as ceremony until you meet a language where
-`zero` does not mean zero. It also settles the aesthetics: **the visual mix is doing semantic
-work.** A number can never be mistaken for a category, and in a uniform word list `none` and
-`zero` would look like the same kind of key while denoting very different sets — with both
-present in Latvian and nothing to tell a translator which is arithmetic and which grammatical.
+The numeric-looking category names are a convenience of the spec, not a definition. **`none`
+is safe only because CLDR never used the word** — it sits outside the namespace and carries no
+grammar to inherit, and there is no second free word.
 
-**Pin the related subtlety while it is in view: `1=` and `one` are not the same test.** Exact
-`1` matches n = 1 only; category `one` follows CLDR's rules, so `1.0` with a visible decimal is
-`other` in English. Both are legitimately needed, and the numeric/word split is what makes that
-legible rather than folkloric.
+#### Ordinals are missing entirely, and that is the larger CLDR gap
+CLDR defines ordinal rules **separately** (`ordinals.xml`, `<plurals type="ordinal">`, roughly
+120–130 locales). Neither `DESIGN.md` nor `inline-formatting.md` mentions them; there is no
+`selectordinal`-equivalent hint.
 
-**Resolution — word-based keys throughout, and the pipeline is what makes it safe.**
+English needs **four** ordinal categories where it needs two cardinal ones:
 
-The objection to `none` was never mechanical: it works exactly as `=0` does. It was that a
-Latvian translator seeing `none` and `zero` together has no cue which is arithmetic and which
-grammatical. **But translators do not invent keys — the pipeline generates them** (`DESIGN.md`:
-the target's categories are generated, en writes `one`/`other`, cy expands to six). A Latvian
-translator receives both as pre-created branches with whatever the translator UI labels them,
-rather than as raw text to reason about. The ambiguity is a tooling problem, and the tooling is
-already in the design.
+| count | rule | matches |
+|---|---|---|
+| `one` | `n % 10 = 1 and n % 100 != 11` | 1st, 21st, 31st |
+| `two` | `n % 10 = 2 and n % 100 != 12` | 2nd, 22nd |
+| `few` | `n % 10 = 3 and n % 100 != 13` | 3rd, 23rd |
+| `other` | — | 4th, **11th, 12th, 13th** |
 
-It also resolves further than "both always appear", because the front-end can compute the
-difference **from CLDR itself** — it knows each locale's `zero` condition:
+This is why ICU has `plural` and `selectordinal` as distinct keywords: **the hint selects the
+rule table.** The hint-driven design here would handle it correctly if the hint existed — the
+gap is the hint, not the architecture.
 
-| locale group | what the translator gets |
-|---|---|
-| `cy`, `ar`, `ars`, `kw`, `cv`, `ksh`, `blo`, `lag` — `zero` **is** `n = 0` | `none` folds into `zero`; one branch, nothing to disambiguate |
-| `lv`, `prg` — `zero` is **not** `n = 0` | both, and both are genuinely needed |
-| everything else — no `zero` category | `none` only |
+Whether ordinals are wanted is a corpus question ("1st January" is usually a `date` hint's job;
+rankings are rarer). But under *stay closer to CLDR* it should be **named as deferred rather
+than absent**, since nothing currently records that the capability exists and was passed over.
 
-Each locale's generated data carries the branches that locale actually needs, which is what
-per-locale generation is for. The awkward case reduces to **one living language**, whose
-translator is the person best placed to understand it.
-
-So: **word-based keys, `none` reserved, no numeric keys and no `=` sigil.** The key space is
-`{CLDR categories} ∪ {none}` — a closed set the front-end validates against, which also yields
-the case 13a build errors (`ome=`, `many=`) for free.
-
-**The cost, stated rather than allowed to happen quietly: this drops exact matches other than
-zero — and the reason is stronger than "no word is spare".**
-
-*Borrow a category name and you inherit its grammar, not its number.* Verified against
-`plurals.xml`: `two` is a category in a dozen locales and is *frequently not* exactly 2 —
-
-| locale | `two` matches |
-|---|---|
-| **Breton** | `n % 10 = 2 and n % 100 != 12,72,92` → 2, 22, 32, 42 … **but not 12, 72, 92** |
-| **Scottish Gaelic** | `n = 2,12` |
-| **Slovenian** | `v = 0 and i % 100 = 2` → 2, 102, 202 … |
-| **Manx** | `v = 0 and i % 10 = 2` → 2, 12, 22 … |
-| **Sorbian** (dsb, hsb) | 2, 102, and fractional forms |
-| **Cornish** | 2, 22, 42, 62, 82, … |
-| Welsh, Arabic, Irish, Maltese, Sami | `n = 2` |
-
-So `two=` meaning "exactly two" would be wrong in six-plus languages, against Latvian's one —
-the same failure as `zero`-as-none with a larger blast radius. The numeric-looking category
-names are a convenience of the spec, not a definition.
-
-**`none` is safe only because CLDR never used the word.** It sits outside the namespace and so
-carries no grammar to inherit, and there is no second free word: `one`, `two`, `few` and `many`
-are all taken, and every one of them means something other than the obvious somewhere.
-
-**So the choice is between:**
-- **(a) Words only** — `none` the sole exact match, no exact-N beyond zero. Uniform and safe;
-  loses a capability.
-- **(b) Words for categories, something visually distinct for exact matches** — numeric keys or
-  a sigil. Recovers exact-N at the cost of the mixed look.
-
-It turns on an empirical question about the corpus: **has a real message ever needed "exactly
-2"?** Zero clearly earns its place — "no accounts" reads badly as "0 accounts". Beyond that,
-unknown, and this is what real examples settle. *(a) is the current lean.*
-
-**And it does not weaken the Latvian finding — it relocates it.** The collapse that fails is
-still the one that makes `zero` *mean* "none". Keeping them as separate keys, with the
-per-locale folding above, is precisely what the counter-example demands.
-
-**And it reinforces two other cases.** It never displays `count` at all, so case 13's `v`
-operand is undefined for the whole message — the exact branches do not rescue that, since
-`other` is still selected by a plural rule that needs `v`. And as first written it carried
-`many=`, which **is not an English category** (en has only `one` and `other`), so the branch can
-never fire. That is case 13a again, arriving by accident for the second time in two real
-examples — reasonable evidence that an inapplicable category key should fail the build rather
-than sit unreachable.
+**And it reinforces two other cases.** The example never displays `count` at all, so case 13's
+`v` operand is undefined for the whole message — the exact branches do not rescue that, since
+`other` is still selected by a rule that needs `v`. And as first written it carried `many=`,
+which is not an English category, so the branch can never fire: case 13a arriving by accident
+for the second time in two real examples, which is reasonable evidence that an inapplicable
+category key should fail the build.
 
 ### 8. Escapes
 **Stand-in:** `Use \{braces\} and a pipe \| here`
@@ -356,6 +296,15 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **case 7 settled on bare numeric keys, and ordinals surfaced as the larger gap.**
+  The deciding argument was a change of stance — *stay closer to CLDR, simplify only where we
+  should* — under which `none` is the divergence and `=N` the alignment; bare numbers keep
+  ICU's capability while dropping the `=1=` artifact and the second-`=` parse wrinkle. Case 7
+  rewritten rather than accreting supersede-notes, since it had reversed twice. Added the
+  principle in full with its three verified instances, the third being the sharpest: **Welsh's
+  `zero` is `n = 0` for cardinals and `n = 0,7,8,9` for ordinals** — one word, one language,
+  two tables. And recorded that **ordinal rules are absent from the design entirely**, where
+  CLDR covers ~120–130 locales and English alone needs four ordinal categories.
 - 2026-08-27: **the Latvian finding generalises — *borrow a category name and you inherit its
   grammar, not its number*.** Checked whether word-based exact matches extend past `none`
   (could there be a `two=`?). They cannot: `two` is a category in a dozen locales and is
