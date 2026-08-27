@@ -113,8 +113,9 @@ This also closed the last dangling item from the vector work — `../c5n/PLAN.md
   The lean is an explicit `Money.RoundToCash` over new currency fields rather than a change
   to the amount grammar, so an accounting `CHF 12.34` stays a valid value that simply is not
   payable in coins. Lands with the pipeline that supplies the data.
-- **The canonical-data pipeline** — cron → diff → PR, gated on the `iso-codes` licence
-  decision in `DESIGN.md` → *Design agenda*.
+- **The canonical-data pipeline** — cron → diff → PR. **Ungated since 2026-08-26**; the
+  licence question that blocked it resolved to CLDR-only. Replaces the hand-authored skeleton
+  tables, and is what `attribution:` in `c5n.yaml` is waiting for.
 - **Packaging** — npm (ESM) + NuGet, versioning, tree-shaking structure.
 
 ## Change log
