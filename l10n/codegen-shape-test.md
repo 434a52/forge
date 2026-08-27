@@ -100,12 +100,65 @@ truncated before the units section and the chart URL 404'd.
 data must not be. Also: the runtime falls back to `other` — where does the *category set* come
 from, generated per locale or from CLDR plural rules at runtime?
 
-### 5. ⚠ Nested selectors
-**Stand-in:** `{gender:select|male={count:plural|one=…|other=…}|female={count:plural|one=…|other=…}}`
-**Real:** *(to add — does the corpus actually nest, and how deep?)*
-**Forces:** recursion in the data model, and whether the interpreter stays small. This is the
-case that decides whether "message as data" is genuinely data or a small program. If the
-interpreter needs its own scope handling, the conformance surface is bigger than claimed.
+### 5. ⚠ Nested selectors — **RESOLVED: nesting is removed, and the shape gets simpler**
+**Stand-in:** `{who:select|self=You have {n:plural|one=an account|other={n} accounts}|other={name} has {n:plural|…}}`
+**Real:** *(none — nesting has not been needed in accounting or banking work across several
+builds of this stack. That absence is itself evidence, and it is what made the question worth
+asking rather than assuming.)*
+
+**This is the first case to test the candidate's actual claim** rather than its syntax, and the
+claim holds — better than holds. Nesting comes out entirely, and what replaces it makes the
+data model *smaller*.
+
+#### The discriminator: select keys are locale-invariant, plural categories are not
+
+`male`/`female`/`other`, `self`/`other` — author-chosen and identical in every language. Plural
+categories are decided **per locale**: two in English, six in Welsh, and which apply is not the
+author's choice.
+
+That maps exactly onto the two trees found before any case was walked:
+
+| | selection | lives in |
+|---|---|---|
+| **`select`** | locale-**invariant** keys | the **locale-neutral shim tree** |
+| **`plural`** | locale-**varying** categories | the **per-locale data trees** |
+
+#### So `select` hoists into the shim, and `plural` stays in the data
+
+```yaml
+invite:
+  female: "{host} invites {guest} to her party"
+  male:   "{host} invites {guest} to his party"
+  other:  "{host} invites {guest} to their party"
+```
+
+`c5n` generates **one** shim — `invite(gender, host, guest)` — which switches on `gender` and
+calls the right message. The authored messages are whole sentences, the generated code does the
+outer selection, and **the message data never nests.**
+
+#### What it buys
+
+- **The parts model stays a flat list.** No tree, no recursion — the interpreter is a loop.
+  That is the conformance surface *not* growing, which is what this case existed to test.
+- **`select` becomes a generated enum.** Its keys are a closed set known at build time, so an
+  invalid value is a **compile error** rather than a silent fall-through to `other`. The typed
+  north star reaches somewhere it currently does not.
+- **Translators get whole sentences.** Nesting produces *fragments* — three genders × six Welsh
+  categories is eighteen fragments for one sentence — and fragment assembly is the classic
+  route to poor translation, because nobody can see what they are agreeing with. Three complete
+  sentences is better practice independently of what it does for the engine.
+- **Nesting leaves the syntax**, and its interactions with escaping and with the multiplicative
+  per-locale data go with it.
+
+#### Limits, stated rather than discovered later
+
+- **`plural` inside `plural` is not expressible.** No real message has been constructed that
+  wants it.
+- **A `select` whose branches differ only inside one plural case** duplicates the whole message
+  per key. Correct, just more keys — and they are authored sentences rather than fragments.
+- **Message count multiplies by select cardinality.** Fine at three; a `select` with many keys
+  is almost certainly data-driven and should not be a message selector at all. **Worth a stated
+  limit** rather than left to judgement.
 
 ### 6. Branches using different arguments
 **Stand-in:** `{plan:select|free=Upgrade for {price:currency}|paid=Renews {renews:date-medium}}`
@@ -296,10 +349,18 @@ either doc.
 - **Is a constants file a `c5n` concern at all?** If constants resolve at lowering time
   (case 14) then `c5n` never sees them and the answer is no — which is the preferred outcome,
   and worth confirming rather than assuming.
-- **What does `c5n` need that it does not have?** The deliverable of this exercise. Expect at
-  minimum `tree<T>`, typed-shim emit, and fine-grained output layout — but the *specification*
-  of each is what is missing, and it should come from these cases rather than from the stress
-  test that proposed them.
+- **What does `c5n` need that it does not have?** The deliverable of this exercise. Entries so
+  far, from the cases actually walked:
+  1. **Two trees** — a locale-neutral tree of typed shims, and per-locale trees of message
+     data. Different leaf types, different output layouts. *(Found before any case was walked.)*
+  2. **The parts model is a flat list, never a tree** — no recursion in the interpreter,
+     because `select` hoists out of the data. *(Case 5.)*
+  3. **Shim-level dispatch on a generated enum** — the shim switches on a `select` argument
+     whose keys are a closed build-time set. *(Case 5.)*
+  4. **A parameter node carrying a default** — for a constant supplying an optional argument's
+     value, resolved at lowering. *(Case 14.)*
+  Still expected but unspecified: `tree<T>` for the namespace tree, and fine-grained output
+  layout (case 10).
 
 ## What a pass looks like
 
@@ -314,6 +375,19 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **case 5 resolved — nesting is removed, and the codegen shape gets simpler.** The
+  first case to test the candidate's actual claim rather than its syntax, and the claim holds.
+  The discriminator is that **`select` keys are locale-invariant while plural categories are
+  not**, which maps straight onto the two trees: select belongs in the locale-neutral shim,
+  plural in the per-locale data. So `select` becomes **shim-level dispatch on a generated
+  enum** — an invalid value is a compile error rather than a silent fall-through to `other` —
+  and the **parts model stays a flat list**, so the interpreter loops rather than recurses and
+  the conformance surface does not grow. Translators gain whole sentences instead of the
+  eighteen fragments a gender × Welsh-plural nest would produce, which is better practice on
+  its own terms. Limits recorded: no `plural` inside `plural`, and a wide `select` is data
+  rather than a message selector. *No real example exists — nesting has not been needed in
+  accounting or banking work across several builds, and that absence is what made the question
+  worth asking.*
 - 2026-08-27: **cases 3 and 13 resolved together — plural drives on an integer.** The `-N` on a
   plural driver was declaring precision for CLDR's `v` operand, which is what forced the
   digit-coupling rule; restricting drivers to integers makes `v = 0` structurally, so the rule,
