@@ -106,21 +106,36 @@ category names are alphabetic (`zero one two few many other`) and exact values a
 uniform split-on-first-`=` rule covers every key. The whole thing reduces to one line a
 translator can hold: **numbers are exact, words are categories.**
 
-**Reject `none=`.** It is a second spelling for `0`, which is reason enough — but the sharper
-objection is that it lands in the one region of this syntax that is already subtle. **`zero` is
-a *grammatical* category** (Welsh, Arabic) and is not "count equals zero". Adding `none` puts a
-third name into that space — `0` exact, `zero` grammatical, `none` ambiguous between them — and
-a Welsh translator would see `zero` and `none` side by side with nothing to tell them which is
-which.
+**Reject `none=`, and reject the tempting collapse behind it.** The instinct that a uniform
+word list reads better than a mix is right, and it leads somewhere worse: if `zero` and `none`
+are both words, why not drop `none` and let **`zero` mean "n = 0" everywhere** — a real category
+where the locale has one, an exact match where it does not? It would remove exact matches from
+the syntax altogether. It is also **wrong, and dangerously so.**
+
+**Latvian's `zero` category is `n % 10 = 0 or n % 100 = 11..19`** — it matches 0, 10, 11…19, 20,
+30, 40. A message using `zero` to mean "none" renders **"no accounts" for twenty accounts** in
+Latvian. (Arabic, Cornish, Chuvash, Colognian and Anii do use `n = 0`; Latvian and Prussian do
+not, and one counter-example is enough.)
+
+So the separation of exact matches from categories is load-bearing rather than inherited — and
+this is *why ICU has `=0` at all*, which reads as ceremony until you meet a language where
+`zero` does not mean zero. It also settles the aesthetics: **the visual mix is doing semantic
+work.** A number can never be mistaken for a category, and in a uniform word list `none` and
+`zero` would look like the same kind of key while denoting very different sets — with both
+present in Latvian and nothing to tell a translator which is arithmetic and which grammatical.
 
 **Pin the related subtlety while it is in view: `1=` and `one` are not the same test.** Exact
 `1` matches n = 1 only; category `one` follows CLDR's rules, so `1.0` with a visible decimal is
 `other` in English. Both are legitimately needed, and the numeric/word split is what makes that
 legible rather than folkloric.
 
-**And it reinforces case 13:** this message never displays `count` at all, so the `v` operand is
-undefined for the whole message. The exact branches do not rescue that — `other` is still
-selected by a plural rule that needs `v`.
+**And it reinforces two other cases.** It never displays `count` at all, so case 13's `v`
+operand is undefined for the whole message — the exact branches do not rescue that, since
+`other` is still selected by a plural rule that needs `v`. And as first written it carried
+`many=`, which **is not an English category** (en has only `one` and `other`), so the branch can
+never fire. That is case 13a again, arriving by accident for the second time in two real
+examples — reasonable evidence that an inapplicable category key should fail the build rather
+than sit unreachable.
 
 ### 8. Escapes
 **Stand-in:** `Use \{braces\} and a pipe \| here`
@@ -256,6 +271,16 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **Latvian settles the exact-match question, against the tidier answer.** The
+  instinct that a uniform word list beats a mix leads to collapsing `none` into `zero` and
+  dropping exact matches entirely — which fails, because **Latvian's `zero` category matches
+  0, 10, 11…19, 20, 30**, so "no accounts" would render for twenty accounts. The separation is
+  load-bearing, and it is why ICU has `=0` at all. What survives from the earlier finding:
+  bare numbers rather than the `=` sigil, since a number cannot collide with a category name.
+  Also noted: the same example carried `many=`, which is not an English category, making it the
+  second real example in two to contain an unfireable branch.
+  **Unverified claim to check:** this doc says Welsh has six categories. That is from memory —
+  the CLDR chart fetch did not surface Welsh — and it is used in several places here.
 - 2026-08-27: **case 7 has a real example, and it argues the syntax should change.** Writing
   exact matches as bare numbers (`1=`) rather than ICU's `=1=` is unambiguous — categories are
   words, exact values are numbers — and it removes the second-`=` parse wrinkle `DESIGN.md`
