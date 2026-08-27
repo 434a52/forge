@@ -33,11 +33,11 @@ public partial class Country
     /// <summary>IANA civil timezone id of the capital city (e.g. "Europe/London" for GB).
     /// A single well-defined representative zone — per-subdivision zones for multi-zone
     /// countries (US, …) are deferred to subdivision data (see f8n/DESIGN.md).</summary>
-    public string CapitalTz { get; }
+    public string PrimaryTz { get; }
 
     public Country(
         string alpha2, string alpha3, int numeric, string name,
-        int callingCode, Currency defaultCurrency, string capitalTz)
+        int callingCode, Currency defaultCurrency, string primaryTz)
     {
         Alpha2 = alpha2;
         Alpha3 = alpha3;
@@ -45,7 +45,7 @@ public partial class Country
         Name = name;
         CallingCode = callingCode;
         DefaultCurrency = defaultCurrency;
-        CapitalTz = capitalTz;
+        PrimaryTz = primaryTz;
     }
 
     /// <summary>

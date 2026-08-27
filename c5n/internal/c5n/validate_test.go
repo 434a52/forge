@@ -13,7 +13,7 @@ func countrySchema() Schema {
 		Fields: []Field{
 			{Name: "alpha2", Type: "string"},
 			{Name: "alpha3", Type: "string"},
-			{Name: "capitalTz", Type: "string"},
+			{Name: "primaryTz", Type: "string"},
 		},
 	}}
 }
@@ -39,7 +39,7 @@ func TestUndeclaredFieldIsRejected(t *testing.T) {
 		"row 1 (GBR)",               // which row, by the identity in it
 		`"captialTz"`,               // the offending field, quoted so the typo is visible
 		"Country",                   // the type it is not declared on
-		"alpha2, alpha3, capitalTz", // what is declared, in declaration order
+		"alpha2, alpha3, primaryTz", // what is declared, in declaration order
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error is missing %q:\n%s", want, err)
@@ -53,7 +53,7 @@ func TestAllProblemsReportedTogether(t *testing.T) {
 	err := validateSrc(t, `type: table<Country>
 items:
   - { alpha2: GB, alpha3: GBR, zzz: 1, aaa: 2 }
-  - { alpha2: FR, alpha3: FRA, capitalTz: Europe/Paris, mmm: 3 }
+  - { alpha2: FR, alpha3: FRA, primaryTz: Europe/Paris, mmm: 3 }
 `)
 	if err == nil {
 		t.Fatal("want errors, got nil")
@@ -73,7 +73,7 @@ items:
 }
 
 func TestDeclaredFieldsValidate(t *testing.T) {
-	err := validateSrc(t, "type: table<Country>\nitems:\n  - { alpha2: GB, alpha3: GBR, capitalTz: Europe/London }\n")
+	err := validateSrc(t, "type: table<Country>\nitems:\n  - { alpha2: GB, alpha3: GBR, primaryTz: Europe/London }\n")
 	if err != nil {
 		t.Errorf("valid data should validate, got: %v", err)
 	}

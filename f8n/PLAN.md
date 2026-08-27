@@ -113,9 +113,15 @@ This also closed the last dangling item from the vector work — `../c5n/PLAN.md
   The lean is an explicit `Money.RoundToCash` over new currency fields rather than a change
   to the amount grammar, so an accounting `CHF 12.34` stays a valid value that simply is not
   payable in coins. Lands with the pipeline that supplies the data.
-- **The canonical-data pipeline** — cron → diff → PR. **Ungated since 2026-08-26**; the
-  licence question that blocked it resolved to CLDR-only. Replaces the hand-authored skeleton
-  tables, and is what `attribution:` in `c5n.yaml` is waiting for.
+- **The canonical-data pipeline** — **Ungated since 2026-08-26**, and the sourcing is now
+  researched per field in **`reference-data.md`**: mostly CLDR, `callingCode` from
+  libphonenumber, `primaryTz` from IANA. Replaces the hand-authored skeleton tables, and is
+  what `attribution:` in `c5n.yaml` is waiting for. **The extractor is the valuable half; the
+  cron → diff → PR ceremony is not** — the drift-guard already makes a committed extractor's
+  output a reviewable diff, so automation adds *freshness*, not safety. Build the extractor,
+  **pin the CLDR release**, run it by hand and commit; automate later by bumping the pin. A
+  manual run against an unpinned upstream is the one version of this that is worse than
+  nothing, because the committed data would have no provenance.
 - **Packaging** — npm (ESM) + NuGet, versioning, tree-shaking structure.
 
 ## Change log

@@ -50,7 +50,7 @@ are each a Go test plus an error path; no emitter change.
   appear, or left behind by a rename — was dropped in complete silence, with the output
   regenerating and compiling without it. Same class as the `float64` bug: invisible on the
   page, wrong in the artefact. A *misspelled* key was already caught, but by the absence it
-  left ("field capitalTz: missing from row"), which names the field spelled correctly and
+  left ("field primaryTz: missing from row"), which names the field spelled correctly and
   not the one that is wrong. Validation now runs once over schema + data before any writer
   sees them, reports every problem in one pass, and names the file, the row by its key, the
   offending field, and what is declared.

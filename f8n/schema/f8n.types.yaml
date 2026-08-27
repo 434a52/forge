@@ -22,8 +22,11 @@ Country:
   # its identity, and as a numeric code from older ones — but those are *ingestion* forms, not
   # wire forms: accepting them on the wire would give one value three encodings.
   lookup: [alpha2, numeric]
+  # callingCode is sourced from libphonenumber, not CLDR — CLDR removed telephone codes in
+  # v34. primaryTz is IANA's most-populous zone for the country, not the capital's.
+  # See ../reference-data.md.
   fields: { alpha2: string, alpha3: string, numeric: int, name: string, callingCode: int,
-            defaultCurrency: Currency, capitalTz: string }
+            defaultCurrency: Currency, primaryTz: string }
 
 # Enums are generated: c5n emits the type *body* in each target, and their members are
 # declared here rather than collected from data. A data value therefore *selects* a member

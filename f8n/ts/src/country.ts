@@ -25,7 +25,7 @@ export class Country {
     readonly defaultCurrency: Currency,
     /** IANA civil timezone id of the capital city (e.g. "Europe/London" for GB). Per-subdivision
      *  zones for multi-zone countries are deferred to subdivision data (see f8n/DESIGN.md). */
-    readonly capitalTz: string,
+    readonly primaryTz: string,
   ) {}
 
   /**

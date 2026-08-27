@@ -61,7 +61,7 @@ func Validate(schema Schema, tables []*Table) error {
 //     output regenerated, compiled, and simply did not contain what the author wrote.
 //
 //   - A misspelled key, which also leaves a declared field absent. The writers did catch
-//     this, but by reporting the absence — "field capitalTz: missing from row" — which
+//     this, but by reporting the absence — "field primaryTz: missing from row" — which
 //     names the field spelled correctly and says nothing about the one that is wrong.
 //     Naming the undeclared key instead points at the actual mistake.
 //

@@ -1,20 +1,22 @@
 # Country table — identity is the `alpha3` field (schema key) → emits Country.GBR, Country.DEU, …
-# Hand-authored handful (skeleton) — NOT a sourced iso-codes/CLDR dataset. A few hand-typed
-# rows dodge the LGPL/database-right question entirely; the full sourced table is a later
-# pipeline step, gated on the licence decision (see f8n/DESIGN.md banner). Do not grow this
-# into the real dataset.
+# Hand-authored handful (skeleton) — NOT a sourced dataset. The full table is a later pipeline
+# step; the licence question that used to gate it resolved to CLDR-only on 2026-08-26. Do not
+# grow this by hand into the real dataset.
 #
-# defaultCurrency references a Currency by its code; capitalTz is the IANA civil zone of the
-# capital city (a single well-defined representative — per-subdivision zones for multi-zone
-# countries are deferred to subdivision data, see f8n/DESIGN.md).
+# defaultCurrency references a Currency by its code.
+#
+# primaryTz is a country's single representative IANA civil zone — the most populous, which is
+# what IANA's zone1970.tab lists first. NOT the capital's: there is no such field in any
+# upstream, and the two definitions differ. Per-subdivision zones for multi-zone countries are
+# deferred to subdivision data. See f8n/reference-data.md.
 type: table<Country>
 items:
-  - { alpha2: GB, alpha3: GBR, numeric: 826, name: "United Kingdom", callingCode: 44,  defaultCurrency: GBP, capitalTz: Europe/London    }  # London
-  - { alpha2: DE, alpha3: DEU, numeric: 276, name: "Germany",        callingCode: 49,  defaultCurrency: EUR, capitalTz: Europe/Berlin    }  # Berlin
-  - { alpha2: FR, alpha3: FRA, numeric: 250, name: "France",         callingCode: 33,  defaultCurrency: EUR, capitalTz: Europe/Paris     }  # Paris
-  - { alpha2: PT, alpha3: PRT, numeric: 620, name: "Portugal",       callingCode: 351, defaultCurrency: EUR, capitalTz: Europe/Lisbon    }  # Lisbon
-  - { alpha2: US, alpha3: USA, numeric: 840, name: "United States",  callingCode: 1,   defaultCurrency: USD, capitalTz: America/New_York }  # Washington, D.C.
+  - { alpha2: GB, alpha3: GBR, numeric: 826, name: "United Kingdom", callingCode: 44,  defaultCurrency: GBP, primaryTz: Europe/London    }  # one zone
+  - { alpha2: DE, alpha3: DEU, numeric: 276, name: "Germany",        callingCode: 49,  defaultCurrency: EUR, primaryTz: Europe/Berlin    }  # one zone
+  - { alpha2: FR, alpha3: FRA, numeric: 250, name: "France",         callingCode: 33,  defaultCurrency: EUR, primaryTz: Europe/Paris     }  # one zone
+  - { alpha2: PT, alpha3: PRT, numeric: 620, name: "Portugal",       callingCode: 351, defaultCurrency: EUR, primaryTz: Europe/Lisbon    }  # mainland; Atlantic/Azores is the other
+  - { alpha2: US, alpha3: USA, numeric: 840, name: "United States",  callingCode: 1,   defaultCurrency: USD, primaryTz: America/New_York }  # first of several; IANA lists the most populous first
   # Ireland earns its place beyond being a country: its alpha-2 is IE, and "ie" upper-cased
   # under a Turkish locale becomes "İE" — so it is the row that makes Country.Find's
   # case handling testable rather than theoretical.
-  - { alpha2: IE, alpha3: IRL, numeric: 372, name: "Ireland", callingCode: 353, defaultCurrency: EUR, capitalTz: Europe/Dublin }
+  - { alpha2: IE, alpha3: IRL, numeric: 372, name: "Ireland", callingCode: 353, defaultCurrency: EUR, primaryTz: Europe/Dublin }
