@@ -177,10 +177,38 @@ So: **word-based keys, `none` reserved, no numeric keys and no `=` sigil.** The 
 the case 13a build errors (`ome=`, `many=`) for free.
 
 **The cost, stated rather than allowed to happen quietly: this drops exact matches other than
-zero.** ICU's `=1` and `=2` have no word available — `one` is taken by the category, and they
-are not the same test (`1.0` is exact-`1` but category-`other`). Likely an acceptable loss:
-"exactly two" special-casing is rare, and a caller can select a different message. But it is a
-decision to take deliberately, not a side effect of preferring words.
+zero — and the reason is stronger than "no word is spare".**
+
+*Borrow a category name and you inherit its grammar, not its number.* Verified against
+`plurals.xml`: `two` is a category in a dozen locales and is *frequently not* exactly 2 —
+
+| locale | `two` matches |
+|---|---|
+| **Breton** | `n % 10 = 2 and n % 100 != 12,72,92` → 2, 22, 32, 42 … **but not 12, 72, 92** |
+| **Scottish Gaelic** | `n = 2,12` |
+| **Slovenian** | `v = 0 and i % 100 = 2` → 2, 102, 202 … |
+| **Manx** | `v = 0 and i % 10 = 2` → 2, 12, 22 … |
+| **Sorbian** (dsb, hsb) | 2, 102, and fractional forms |
+| **Cornish** | 2, 22, 42, 62, 82, … |
+| Welsh, Arabic, Irish, Maltese, Sami | `n = 2` |
+
+So `two=` meaning "exactly two" would be wrong in six-plus languages, against Latvian's one —
+the same failure as `zero`-as-none with a larger blast radius. The numeric-looking category
+names are a convenience of the spec, not a definition.
+
+**`none` is safe only because CLDR never used the word.** It sits outside the namespace and so
+carries no grammar to inherit, and there is no second free word: `one`, `two`, `few` and `many`
+are all taken, and every one of them means something other than the obvious somewhere.
+
+**So the choice is between:**
+- **(a) Words only** — `none` the sole exact match, no exact-N beyond zero. Uniform and safe;
+  loses a capability.
+- **(b) Words for categories, something visually distinct for exact matches** — numeric keys or
+  a sigil. Recovers exact-N at the cost of the mixed look.
+
+It turns on an empirical question about the corpus: **has a real message ever needed "exactly
+2"?** Zero clearly earns its place — "no accounts" reads badly as "0 accounts". Beyond that,
+unknown, and this is what real examples settle. *(a) is the current lean.*
 
 **And it does not weaken the Latvian finding — it relocates it.** The collapse that fails is
 still the one that makes `zero` *mean* "none". Keeping them as separate keys, with the
@@ -328,6 +356,15 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **the Latvian finding generalises — *borrow a category name and you inherit its
+  grammar, not its number*.** Checked whether word-based exact matches extend past `none`
+  (could there be a `two=`?). They cannot: `two` is a category in a dozen locales and is
+  frequently not exactly 2 — **Breton** matches 22, 32, 42 but not 12, 72, 92; Scottish Gaelic
+  matches 2 and 12; Slovenian 2, 102, 202. Six-plus languages against Latvian's one, so the
+  failure is the same shape with a larger blast radius. `none` is safe only because CLDR never
+  used the word; there is no second free one. Leaves an explicit either/or — words-only with
+  zero as the sole exact match, or a visually distinct form for exact matches — turning on
+  whether any real message has needed "exactly 2".
 - 2026-08-27: **case 7 resolved the other way — word-based keys throughout, and my objection
   was answered by the pipeline.** `none` reserved alongside the CLDR categories; no numeric
   keys, no `=` sigil. The concern was translator legibility, not mechanism, and translators do
