@@ -92,12 +92,35 @@ interpreter needs its own scope handling, the conformance surface is bigger than
 **Forces:** the signature is the **union** of all branches' arguments, so some are unused on
 any given call. Are they optional, or required-and-ignored? Nullable in C#?
 
-### 7. Exact-value match
-**Stand-in:** `{count:plural|=0=No items|one=1 item|other={count:number-0} items}`
-**Real:** *(to add)*
-**Forces:** `=0` is checked *before* category rules, and the parse splits on the second `=`.
-Is an exact match a distinct part kind in the data, or a category with a funny name? The
-interpreter's ordering is a conformance rule either way.
+### 7. ⚠ Exact-value match — **REAL**, and the syntax should change
+**Real:** `{count:plural|none=no accounts|1=account|other=accounts}` — how it would be written
+where zero is reachable.
+**Forces:** the ordering rule (exact before category, a conformance rule either way), whether
+an exact match is a distinct part kind or a category with a funny name — and two syntax
+findings, one adopting and one rejecting.
+
+**Adopt the bare number: `1=`, not `=1=`.** `DESIGN.md` uses ICU's `=0` sigil and pays for it
+with a documented parse wrinkle — *"a key starting with `=` splits on the second `="`*. But
+category names are alphabetic (`zero one two few many other`) and exact values are numeric, so
+**a bare number cannot collide with a category** and the sigil buys nothing. Drop it and the
+uniform split-on-first-`=` rule covers every key. The whole thing reduces to one line a
+translator can hold: **numbers are exact, words are categories.**
+
+**Reject `none=`.** It is a second spelling for `0`, which is reason enough — but the sharper
+objection is that it lands in the one region of this syntax that is already subtle. **`zero` is
+a *grammatical* category** (Welsh, Arabic) and is not "count equals zero". Adding `none` puts a
+third name into that space — `0` exact, `zero` grammatical, `none` ambiguous between them — and
+a Welsh translator would see `zero` and `none` side by side with nothing to tell them which is
+which.
+
+**Pin the related subtlety while it is in view: `1=` and `one` are not the same test.** Exact
+`1` matches n = 1 only; category `one` follows CLDR's rules, so `1.0` with a visible decimal is
+`other` in English. Both are legitimately needed, and the numeric/word split is what makes that
+legible rather than folkloric.
+
+**And it reinforces case 13:** this message never displays `count` at all, so the `v` operand is
+undefined for the whole message. The exact branches do not rescue that — `other` is still
+selected by a plural rule that needs `v`.
 
 ### 8. Escapes
 **Stand-in:** `Use \{braces\} and a pipe \| here`
@@ -233,6 +256,13 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **case 7 has a real example, and it argues the syntax should change.** Writing
+  exact matches as bare numbers (`1=`) rather than ICU's `=1=` is unambiguous — categories are
+  words, exact values are numbers — and it removes the second-`=` parse wrinkle `DESIGN.md`
+  documents. `none=` should not be added: it duplicates `0`, and it crowds the one genuinely
+  subtle corner of the syntax, where `zero` is a grammatical category rather than a test for
+  zero. Also pinned: `1=` and `one` are different tests, which is not obvious and matters at
+  `1.0`.
 - 2026-08-27: **case 14 revised — the constant is a *default* for an optional parameter, not a
   binding of its own.** That corrects an overstatement: resolve-by-lookup fails loudly when a
   constant is removed (every call site stops compiling) and silently only when one is *added*
