@@ -35,30 +35,55 @@ The crux (l10n's analog of f8n's money-arithmetic problem): **identical formatti
 
 **Plurals — evaluate the rules, do not bound them by "complexity".** Evaluate baked **CLDR plural rules** (categories `zero/one/two/few/many/other`) and own it, since platform plural APIs vary or are absent. Same for select/gender if in scope.
 
-*This previously read "handle up to Welsh complexity, no more exotic", and that bound is withdrawn (2026-08-27): it measures **category count**, which is the wrong axis.* Welsh has six categories with straightforward semantics — `zero` is `n = 0`, `two` is `n = 2`. **Latvian has three** and is the one that breaks naive implementations, because its `zero` matches `n % 10 = 0 or n % 100 = 11..19` — 0, 10, 11…19, 20, 30. Under a "no more exotic than Welsh" rule Latvian reads as *simpler* and passes straight through. **Complexity is not how many categories a language has; it is how far a category's membership diverges from its name.** Since the rules are data and the evaluator is one walk over them, there is nothing to bound anyway — the restriction that matters is on the *driver* (an integer), not on the locale.
+*This previously read "handle up to Welsh complexity, no more exotic", and that bound is withdrawn (2026-08-27): it measures **category count**, which is the wrong axis. Worth saying why it looked right — within a Western-European set (en, fr, de, es, nl, it) category count **is** a decent proxy for difficulty, because those locales' categories all mean roughly what they say. The proxy holds until the set widens, and then fails silently rather than loudly.* Welsh has six categories with straightforward semantics — `zero` is `n = 0`, `two` is `n = 2`. **Latvian has three** and is the one that breaks naive implementations, because its `zero` matches `n % 10 = 0 or n % 100 = 11..19` — 0, 10, 11…19, 20, 30. Under a "no more exotic than Welsh" rule Latvian reads as *simpler* and passes straight through. **Complexity is not how many categories a language has; it is how far a category's membership diverges from its name.** Since the rules are data and the evaluator is one walk over them, there is nothing to bound anyway — the restriction that matters is on the *driver* (an integer), not on the locale.
 
 **The guarantee is the fixtures' coverage** (oracle caveat, as in `c5n`): parity to thin fixtures = a *shared, invisible* blind spot. So the real work is **fixture coverage** — locales × formatters × the edges that break: negatives, zero, very large/small, symbol placement, per-currency fraction digits, plural-category boundaries, RTL.
 
-### The fixture locale set — one named failure mode each
-Locales in the set earn their place by the **axis they cover**, not by importance or reach, and
-the reason is recorded so the set cannot be tidied down later by someone who cannot see what
-each one was for. Latvian is the cautionary case: it was absent, and the gap was found by
-reading CLDR rather than by a failing test.
+### Fixtures come in two tiers, and only one needs curating
+The oracle caveat above applies unevenly, because **for plural rules the authority supplies the
+test data as well as the rule.**
+
+**Tier 1 — rule fixtures, generated, every locale.** CLDR publishes sample values inline with
+each plural rule: Welsh's `other` carries `@integer 4, 5, 7~20, 100, 1000, 10000, 100000…`, and
+every category in every locale does the same. That is an input → expected dataset written by
+the authority, so the evaluator can be tested against **all ~200 locales** with **no locale
+chosen, no expected value authored, and nobody who reads the language involved.** Latvian,
+Breton, Manx and Sorbian arrive by construction, which is exactly the class this design keeps
+getting caught by.
+
+It is also the one place in the stack where the **oracle caveat genuinely weakens**. Elsewhere
+— and explicitly in `../c5n/DESIGN.md` — green proves every language agrees with *our* dataset,
+never that the dataset is right. Here the dataset is CLDR's, so agreement is with the authority
+rather than with ourselves. Compare `f8n`, where *"for most of what is under test there is no
+external authority"*; for plural selection there is, and it ships the vectors.
+
+*Assert rather than assume:* the extractor should check that the samples actually exercise each
+rule's distinguishing clauses — Latvian's `zero` samples must include 10, 11–19 and 20, not
+only 0 — and fail if a rule's samples cannot separate it from its neighbours. They are curated
+to be representative, which is not the same as guaranteed to be.
+
+**Tier 2 — formatting and translation fixtures, curated.** Here expected values must be
+*authored*, so the set has to be small and someone has to be able to verify it. Locales earn
+their place by the **axis they cover**, and the reason is recorded so the set cannot be tidied
+down later by someone who cannot see what each one was for.
 
 | locale | the axis it covers |
 |---|---|
 | **cy** Welsh | plural breadth — six categories, and ordinals that differ from its cardinals |
 | **de** German | layout — compound words break the widths everything else fits in |
-| **fr** French | **legibility to the author** — one non-English locale that can be sanity-checked by eye. Underrated: without it, every fixture is a string nobody can read |
-| **lv** Latvian | *(to add)* **deviant category semantics** — `zero` is not zero. Three categories, so a count-based bound admits it |
-| **hi** Hindi | *(to add)* three axes at once — the **lakh/crore magnitude ladder**, **2-2-3 grouping** (`1,23,456`), and Devanagari digits |
+| **fr** French | **legibility to the author** — one non-English locale that can be sanity-checked by eye. Underrated: without it, every fixture is a string nobody in the room can read |
+| **hi** Hindi | *(to add)* three axes at once — the **lakh/crore magnitude ladder** (load-bearing now that compact display is in scope), **2-2-3 grouping** (`1,23,456`), and Devanagari digits |
 | **ar** Arabic | *(to add)* **RTL**, which the coverage list names and no locale currently supplies — plus Arabic-Indic digits, the trap `f8n`'s `LocalDate` already had to defend against |
-| **ja** Japanese | *(to add, lower priority)* the **degenerate case — a single category** (`other`), which exercises the opposite edge from Welsh, plus the 万/億 ladder |
+| **ja** Japanese | *(to add, lower priority)* the **degenerate case — a single category** (`other`), the opposite edge from Welsh, plus the 万/億 ladder |
 
-**The rule to hold: every locale is in the set for a named reason, and the reason is written
-here.** A set assembled by reach rather than by failure mode is the one that ships the Latvian
-bug, because the languages that break implementations are rarely the ones with the most
-speakers.
+**Latvian is deliberately not in tier 2.** It is covered for free in tier 1, which is where its
+risk actually lives; adding it here would buy an end-to-end render of a deviant category at the
+cost of a translation nobody present can verify. Take the free win, spend the curation budget
+on **hi** and **ar**, whose axes no amount of rule-testing reaches.
+
+**The standing rule for tier 2: every locale is in the set for a named reason, written here.** A
+set assembled by reach rather than by failure mode is the one that ships the Latvian bug — the
+languages that break implementations are rarely the ones with the most speakers.
 
 ## Format / parse — the boundary & the API
 **Value-formatting lives in `l10n`, not on the `f8n` type.** `f8n`'s `Money`/temporal types carry only **invariant serialization** (exact, culture-free — wire/logs/debug; the grammar is pinned in `../f8n/DESIGN.md` → *Wire format*, and it is **strict in both directions** — the leniency below is the *human* boundary and must not share a parser with it). All **locale-aware format *and* parse** is `l10n`, *imported where used*:
@@ -289,6 +314,7 @@ A formatter with a fixed locale, a single currency and bounded amounts can be en
 - 2026-07-03: cleared the five small opens (static digits · `=N` exact · parse=compact-money+decimal only · clobber=keep-human+`suggestion` · context=key-path+optional+screenshot); added **Translator UI (l10n × a11y)** section — human-gate surface with a11y-audit screenshots, placeholder chips, key↔control linkage seam.
 - 2026-07-03: **Runtime & integration** section — locale scope (never `CurrentCulture`, `AsyncLocal`/`IDisposable`), m2m propagation, JWT extraction, setup extensions, analysers, enum localization.
 - 2026-07-03: **Translation pipeline** section — en-GB canonical + per-locale mirror, checksum-gated re-translate with `approved:false`, placeholder repair+validate, plural expansion, orphan pruning, deploy gate, compliance flags (no PII to Anthropic; `requiresProfessional`).
+- 2026-08-27: **fixtures split into two tiers — and plural rules need no locale curation at all.** CLDR publishes sample values inline with every rule (`@integer 4, 5, 7~20, 100, 1000…`), which is an input → expected dataset written by the authority for **every locale it defines**. So the plural evaluator is testable against ~200 locales with **no locale chosen, no expected value authored, and nobody who reads the language involved** — Latvian, Breton, Manx and Sorbian arrive by construction, which is precisely the class this design kept getting caught by. It is also the one place the **oracle caveat genuinely weakens**: elsewhere green proves the languages agree with *our* dataset, never that it is right, but here the dataset is CLDR's. **Latvian is deliberately kept out of the curated tier** — its risk is already covered, and adding it would buy an end-to-end render at the cost of a translation nobody present can verify; the curation budget goes to **hi** and **ar** instead. Guard recorded: assert that samples exercise each rule's distinguishing clauses (Latvian's `zero` must sample 10, 11–19 and 20, not only 0) rather than trusting that "representative" means "sufficient".
 - 2026-08-27: **withdrew the "up to Welsh complexity" plural bound, and gave the fixture locale set a written rationale.** The bound measured **category count**, which is the wrong axis: Welsh has six categories with straightforward semantics, while **Latvian has three** and is the one that breaks naive implementations (`zero` matches 0, 10, 11…19, 20). "No more exotic than Welsh" would have admitted precisely the locale that catches the bug. Complexity is how far a category's membership diverges from its name — and since the rules are data walked by one evaluator, there is nothing to bound anyway; the restriction that matters is on the *driver* being an integer. Recorded the existing set's reasoning — **cy** for plural breadth, **de** for layout, **fr** for legibility to the author (underrated: without it every fixture is a string nobody can read) — and the uncovered axes: **lv** for deviant category semantics, **hi** for the lakh/crore ladder with 2-2-3 grouping and Devanagari digits, **ar** for RTL, which the coverage list names and nothing supplies. Standing rule: a locale is in the set for a named reason, written down, because a set assembled by reach rather than by failure mode is the one that ships the Latvian bug.
 - 2026-08-27 (later): **compact display is in scope after all — the cost estimate was wrong.** The blocker was count-indexed patterns forcing plural selection and the `c`/`e` operands. Verified against `cldr-json`: **Welsh's short compact is identical across all six counts** (`0K`, `00K`, `0M`) while its **long** form does vary (`0 mil` / `0 miliwn`). Abbreviations do not inflect, so short compact needs no category selection and does not disturb the integer-only plural restriction. What remains is shared with input — one magnitude → suffix table, bucket selection, and a rounding rule we own rather than inherit from ICU — with Indian and CJK ladders falling out as ordinary entries because CLDR keys by magnitude. Added the guard that matters: **the extractor must assert count-invariance across every locale and fail if it breaks**, turning an inference drawn from one language into a checked invariant and removing any need for a supported-locale fallback. Long compact stays out; that is where the plural machinery actually lives. Supersedes the earlier entry deferring display, and the "weeks of work" estimate with it.
 - 2026-08-27: **compact split — input in scope, display deferred with a shape rather than a date.** Display is the most expensive item in the hint table and partly undoes the plural restriction: CLDR's compact patterns are count-indexed per locale and magnitude, and selecting among them needs the `c`/`e` operands that integer-only plurals had just removed, plus locale-shaped magnitude ladders, significant-digit rounding and a table large enough to fight tree-shaking. **Input needs none of it** — a suffix → multiplier table applied in the lenient input grammar, exact integer scaling over the decimal string, with the currency's scale still doing the rejecting. It is **not a hint**: it lives in `parseCurrency`, already lenient, already outside the vectors, and touches nothing in the DSL or the codegen shape. `currency-short` is struck from the hint table meanwhile. Deferral given a shape: own the rounding rule rather than matching ICU, and support only locales whose compact patterns are count-invariant — a set **derivable from the data**, not hand-curated — rendering the full value elsewhere. Both are restrictions rather than approximations: the fallback is correct, merely longer.
