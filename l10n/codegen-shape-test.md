@@ -64,13 +64,34 @@ of a real corpus pays it.
 **Forces:** the basic typed signature — `limit: Money`. Who applies the locale: does the shim
 capture it, take it per call, or read ambient state?
 
-### 3. ⚠ Plural with coupled digits
-**Stand-in:** `{count:plural|one={count:number-0} item|other={count:number-0} items}`
-**Real:** *(to add)*
-**Forces:** one argument in two roles — selector operand *and* formatted value. Plus the rule
-that "a single digit-count governs both". **Is that rule checked, or assumed?** A message
-whose branches disagree (`number-0` in one, `number-2` in another) is authorable today; if
-nothing rejects it, `1.00 item` ships.
+### 3. ⚠ Plural with coupled digits — **RESOLVED: the coupling is removed**
+**Was:** `{count:plural|one={count:number-0} item|other={count:number-0} items}`
+**Now:** `{count:plural|one={count} item|other={count} items}`
+
+The `-0` was doing two jobs: printing the number (needed) and declaring its precision, which
+CLDR uses as the `v` operand (the source of the rule). **Plural drives on an integer**, so
+`v = 0` structurally and the second job disappears — no `-N` on a plural driver, a bare
+`{count}` in the branch, and no rule to check because disagreement is inexpressible.
+
+It also shrinks the runtime: with `v = w = f = t = 0` and `n = i`, the interpreter evaluates
+**one operand rather than six**, and clauses like Latvian's `v = 2 and f % 100 = 11..19` are
+structurally dead.
+
+**Why this simplification is safe where the day's others were not:**
+
+> A **restriction** makes some inputs inexpressible. An **approximation** makes some inputs
+> wrong.
+
+`zero`-means-none accepts 20 and renders a false sentence in Latvian — an approximation.
+Integer-only plurals are exactly correct for every input accepted, because the CLDR rules
+reduce for integers; a class of message simply cannot be written. **This is the test to apply
+to every remaining simplification in this doc.**
+
+**Seam, named rather than built:** fractional pluralisation returns with **long-form unit
+names in prose** ("2.5 kilowatt-hours") — *not* with unit formatting generally, since unit
+symbols do not pluralise ("12.5 kWh" is invariant). So ampersand's unit needs do not reopen
+this. *Unverified:* that short/narrow unit widths are count-invariant in CLDR — `en.xml`
+truncated before the units section and the chart URL 404'd.
 
 ### 4. ⚠ A target locale with more categories
 **Stand-in:** the case above, in `cy` — six categories where `en` has two.
@@ -205,14 +226,11 @@ previous approved value? This is where the pipeline and the codegen meet, and ne
 
 - Two arguments of different kinds in one message — one value hint, one selector — so the
   signature draws from two hint families. Expected to be fine; confirm.
-- **`count` selects but is never rendered.** `DESIGN.md`'s rule is that *"the format hint's
-  digit count **is** the plural's `v` operand"* — which assumes the pluralised value is also
-  displayed. Here it is not, so **there is no digit count and `v` is unspecified.** CLDR plural
-  selection needs it. `v = 0` is the sane default, but it is a *decision the design does not
-  state*, and it is a conformance surface: both languages must choose identically or `1.0`
-  categorises differently in each. Rarely visible in English; visible in Welsh and Arabic.
-- **What type is a bare `plural` argument?** The hint table maps `number-N` to
-  `FixedDecimal`/number, but `plural` alone maps to nothing. Undecided.
+- **`count` selects but is never rendered.** ~~There is no digit count, so `v` is
+  unspecified.~~ **Resolved by case 3:** a plural argument is an integer, so `v = 0` whether or
+  not the value is displayed. The gap closes without a default having to be chosen.
+- **What type is a bare `plural` argument?** **Resolved: an integer.** The hint table's
+  `number-N` → `FixedDecimal` mapping does not apply to a plural driver.
 
 ### 13a. A mistyped category name
 **Real:** the case above, as first written: `{count:plural|ome=account|other=accounts}`
@@ -296,6 +314,15 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **cases 3 and 13 resolved together — plural drives on an integer.** The `-N` on a
+  plural driver was declaring precision for CLDR's `v` operand, which is what forced the
+  digit-coupling rule; restricting drivers to integers makes `v = 0` structurally, so the rule,
+  the hint and case 13's unspecified `v` all disappear at once, and the interpreter drops from
+  six operands to one. Recorded with the general test this suggests for the rest of the doc:
+  **a restriction makes some inputs inexpressible, an approximation makes some inputs wrong** —
+  today's rejected simplifications were all the latter, this is the former. Seam named:
+  fractional plurals return with long-form unit names in prose, not with unit formatting, since
+  symbols do not pluralise.
 - 2026-08-27: **case 7 settled on bare numeric keys, and ordinals surfaced as the larger gap.**
   The deciding argument was a change of stance — *stay closer to CLDR, simplify only where we
   should* — under which `none` is the divergence and `=N` the alignment; bare numbers keep
