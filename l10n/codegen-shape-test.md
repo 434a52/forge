@@ -74,14 +74,14 @@ nothing rejects it, `1.00 item` ships.
 
 ### 4. ⚠ A target locale with more categories
 **Stand-in:** the case above, in `cy` — six categories where `en` has two.
-**Real:** *(to add — and which locales the previous build actually shipped)*
+**Real:** *(to add — and which locales are actually in scope, with their category sets)*
 **Forces:** the two-tree split above, concretely. Signature must be identical across locales;
 data must not be. Also: the runtime falls back to `other` — where does the *category set* come
 from, generated per locale or from CLDR plural rules at runtime?
 
 ### 5. ⚠ Nested selectors
 **Stand-in:** `{gender:select|male={count:plural|one=…|other=…}|female={count:plural|one=…|other=…}}`
-**Real:** *(to add — does the previous corpus actually nest, and how deep?)*
+**Real:** *(to add — does the corpus actually nest, and how deep?)*
 **Forces:** recursion in the data model, and whether the interpreter stays small. This is the
 case that decides whether "message as data" is genuinely data or a small program. If the
 interpreter needs its own scope handling, the conformance surface is bigger than claimed.
@@ -101,7 +101,7 @@ interpreter's ordering is a conformance rule either way.
 
 ### 8. Escapes
 **Stand-in:** `Use \{braces\} and a pipe \| here`
-**Real:** *(to add — did the previous corpus hit these in anger?)*
+**Real:** *(to add — do real messages hit these in anger?)*
 **Forces:** whether escapes survive lowering to data, and whether the data holds the *resolved*
 literal or the escaped source. `DESIGN.md` calls this "the archetypal demo-passes-prod-breaks
 bug", so the answer belongs in fixtures, not prose.
@@ -124,7 +124,7 @@ writers have to differ structurally rather than in spelling.
 
 ### 11. A message a locale does not have
 **Stand-in:** a key present in `en-GB`, absent in `cy`.
-**Real:** *(to add — how the previous build handled it)*
+**Real:** *(to add)*
 **Forces:** the shim exists (it comes from canonical), so what does the data tree hold? A
 fallback entry, a hole the runtime resolves, or a build failure? Interacts with case 4's
 fallback question.
