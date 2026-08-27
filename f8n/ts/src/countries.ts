@@ -54,3 +54,25 @@ function isAllAsciiDigits(text: string): boolean {
   }
   return true;
 }
+
+/**
+ * Reads a country from the wire, where it travels as its alpha-3 identity and nothing else.
+ *
+ * Deliberately NOT `findCountry`: that accepts any of the three code forms because it is an
+ * ingestion helper, and accepting three forms here would give one value three encodings. The
+ * wire takes the identity, strictly. Two functions, two boundaries — the leniency of one is
+ * the reason the other has to be explicit.
+ *
+ * A free function rather than a static on `Country` because the index lives in the generated
+ * module, which imports `Country`; a static would close a cycle.
+ */
+export function countryFromJson(value: unknown): Country {
+  if (typeof value !== "string") {
+    throw new Error(`a Country is its alpha-3 code, as a string; got ${typeof value}`);
+  }
+  const found = byAlpha3(value);
+  if (found === undefined) {
+    throw new Error(`unknown country ${value}`);
+  }
+  return found;
+}

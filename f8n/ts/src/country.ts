@@ -27,4 +27,14 @@ export class Country {
      *  zones for multi-zone countries are deferred to subdivision data (see f8n/DESIGN.md). */
     readonly capitalTz: string,
   ) {}
+
+  /**
+   * The wire form: the identity alone. A reference type travels as its key and never as an
+   * inlined record — one rule for every table row (f8n/DESIGN.md -> Reference types travel as
+   * their key). Reading one back needs the generated index, which imports this module, so
+   * `fromJson` is a free function in the lookup module rather than a static here.
+   */
+  toJSON(): string {
+    return this.alpha3;
+  }
 }

@@ -33,7 +33,7 @@ catch (Exception ex)
 // another for a LocalDate. The subject names which type's vectors these are, so one runner
 // per language covers every f8n subject rather than one binary per type.
 var subject = document["subject"]?.GetValue<string>() ?? "";
-if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated" or "f8n.Rounding" or "f8n.Money" or "f8n.Country" or "f8n.CultureCanary"))
+if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated" or "f8n.Rounding" or "f8n.Money" or "f8n.Country" or "f8n.CultureCanary" or "f8n.Json"))
 {
     Console.Error.WriteLine($"run-vector: unknown subject \"{subject}\"");
     return 2;
@@ -104,6 +104,13 @@ static bool IsKnownOperation(string subject, string op)
         ("f8n.Country", "find") => true,
         ("f8n.Country", "property.formsAgree") => true,
         ("f8n.CultureCanary", "upperCaseI") => true,
+        ("f8n.Json", "moneyToJson") => true,
+        ("f8n.Json", "moneyFromJson") => true,
+        ("f8n.Json", "percentageToJson") => true,
+        ("f8n.Json", "localDateToJson") => true,
+        ("f8n.Json", "taxRateToJson") => true,
+        ("f8n.Json", "property.valueRoundTrip") => true,
+        ("f8n.Json", "property.wireRoundTrip") => true,
         _ => false,
     };
 }
@@ -164,6 +171,24 @@ static string Execute(string subject, string op, List<string> inputs)
         // invariant form precisely so it is not.
         case ("f8n.CultureCanary", "upperCaseI"):
             return "i".ToUpper();
+        case ("f8n.Json", "moneyToJson"):
+            return F8nJson.Serialize(Money.FromMajor(inputs[0], Currencies.Lookup(inputs[1])));
+        case ("f8n.Json", "moneyFromJson"):
+            return F8nJson.Deserialize<Money>(inputs[0]).ToString();
+        case ("f8n.Json", "percentageToJson"):
+            return F8nJson.Serialize(Percentage.FromPercent(inputs[0]));
+        case ("f8n.Json", "localDateToJson"):
+            return F8nJson.Serialize(LocalDate.Parse(inputs[0]));
+        // The nested case: TaxRate has no JSON code of its own, so this is the platform
+        // walking a container and firing each value's own rule.
+        case ("f8n.Json", "taxRateToJson"):
+            return F8nJson.Serialize(new TaxRate(
+                Country.ByAlpha3(inputs[0])!, TaxType.VAT, TaxCategory.Standard,
+                Percentage.FromPercent(inputs[1])));
+        case ("f8n.Json", "property.valueRoundTrip"):
+            return Property.ValueRoundTrip(inputs[0], inputs[1]);
+        case ("f8n.Json", "property.wireRoundTrip"):
+            return Property.WireRoundTrip(inputs[0]);
         default:
             throw new InvalidOperationException($"unknown op {op} for {subject}");
     }
@@ -340,6 +365,31 @@ static class Property
         if (byTwo.Alpha3 != byThree.Alpha3 || byTwo.Alpha3 != byNumber.Alpha3)
         {
             return $"{alpha2} found {byTwo.Alpha3}, {alpha3} found {byThree.Alpha3}, {numeric} found {byNumber.Alpha3}";
+        }
+        return "true";
+    }
+
+    // fromJson(toJSON(x)) == x — nothing is lost on the way out.
+    public static string ValueRoundTrip(string amount, string code)
+    {
+        var original = Money.FromMajor(amount, Currencies.Lookup(code));
+        var back = F8nJson.Deserialize<Money>(F8nJson.Serialize(original));
+        if (!back.Equals(original))
+        {
+            return $"{original} serialised and read back as {back}";
+        }
+        return "true";
+    }
+
+    // toJSON(fromJson(w)) == w, over a CANONICAL w — nothing else survives a round trip, which
+    // holds only because the wire form has one encoding per value and unknown properties are
+    // rejected rather than dropped.
+    public static string WireRoundTrip(string wire)
+    {
+        var back = F8nJson.Serialize(F8nJson.Deserialize<Money>(wire));
+        if (back != wire)
+        {
+            return $"{wire} read back and re-emitted as {back}";
         }
         return "true";
     }

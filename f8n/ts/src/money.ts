@@ -1,6 +1,16 @@
 import type { Currency } from "./currency.js";
+import { byCode } from "./generated/currency.data.js";
 import type { Percentage } from "./percentage.js";
 import { divideWithRounding, type RoundingMode } from "./rounding.js";
+
+/**
+ * Money's wire shape. A named type so the round trip is checked at compile time as well as at
+ * run time, and so the field names are stated in exactly one place.
+ */
+export interface MoneyJson {
+  readonly amount: string;
+  readonly currency: string;
+}
 
 /**
  * An amount in a currency, held as an exact integer count of that currency's minor units.
@@ -90,6 +100,57 @@ export class Money {
       text += "." + fraction.toString().padStart(this.currency.minorUnits, "0");
     }
     return text;
+  }
+
+  /**
+   * The wire form: `{"amount":"12.34","currency":"GBP"}`.
+   *
+   * This is the one primitive whose wire form is not its field layout — it holds `minor` and a
+   * `Currency`, and it sends a major-unit string and a code — which is exactly when a type
+   * needs a `toJSON` at all. A type that merely *holds* a Money needs none: JSON.stringify
+   * walks its properties and fires this hook itself.
+   *
+   * Spelled toJSON, not toJson. The wrong spelling is silently ignored and the raw fields are
+   * emitted instead — which here throws rather than lying, because `minor` is a bigint and
+   * JSON.stringify refuses to serialise one. That loudness is a property of the bigint, not of
+   * care, and it is a standing reason not to narrow the field to a number.
+   */
+  toJSON(): MoneyJson {
+    return { amount: this.amount, currency: this.currency.code };
+  }
+
+  /**
+   * Reads the wire form. Strict in every direction: the amount goes through `fromMajor`, so
+   * the currency's scale is enforced; the currency must name a row that exists; and an
+   * unexpected property is rejected rather than ignored.
+   *
+   * Rejecting unknown properties is what makes the wire round trip hold —
+   * `toJSON(fromJson(w)) == w`. Ignore an extra field and it is dropped on the way back out,
+   * so one value would have two encodings and wire equality would stop meaning value
+   * equality. The strictness is not fastidiousness; it is what the property rests on.
+   */
+  static fromJson(value: unknown): Money {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error("a Money is an object with amount and currency");
+    }
+    const keys = Object.keys(value);
+    const unexpected = keys.filter((key) => key !== "amount" && key !== "currency");
+    if (unexpected.length > 0) {
+      throw new Error(`a Money has amount and currency only; got ${unexpected.join(", ")}`);
+    }
+
+    const { amount, currency } = value as Partial<MoneyJson>;
+    if (typeof amount !== "string") {
+      throw new Error("a Money needs an amount, as a string");
+    }
+    if (typeof currency !== "string") {
+      throw new Error("a Money needs a currency code, as a string");
+    }
+    const found = byCode(currency);
+    if (found === undefined) {
+      throw new Error(`unknown currency ${currency}`);
+    }
+    return Money.fromMajor(amount, found);
   }
 
   /** Exact. Adding amounts in different currencies is a bug, not a conversion. */

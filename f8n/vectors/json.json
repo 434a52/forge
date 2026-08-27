@@ -1,0 +1,266 @@
+{
+  "version": 1,
+  "subject": "f8n.Json",
+  "groups": [
+    {
+      "rule": "toJSON — the exact bytes. Expected values are authored from the wire format in f8n/DESIGN.md, not captured from an implementation, so this pins the contract rather than whichever language was written first. The same input goes to both languages: that is what makes C#'s output TypeScript-readable, transitively through this dataset. A per-language round-trip property would prove each side self-consistent and say nothing about the other.",
+      "cases": [
+        {
+          "id": "money-to-json",
+          "op": "moneyToJson",
+          "in": [
+            "12.34",
+            "GBP"
+          ],
+          "note": "Property order is part of the bytes: amount then currency, on both sides.",
+          "out": "{\"amount\":\"12.34\",\"currency\":\"GBP\"}"
+        },
+        {
+          "id": "money-to-json-zero",
+          "op": "moneyToJson",
+          "in": [
+            "0.00",
+            "GBP"
+          ],
+          "out": "{\"amount\":\"0.00\",\"currency\":\"GBP\"}"
+        },
+        {
+          "id": "money-to-json-negative",
+          "op": "moneyToJson",
+          "in": [
+            "-12.34",
+            "GBP"
+          ],
+          "out": "{\"amount\":\"-12.34\",\"currency\":\"GBP\"}"
+        },
+        {
+          "id": "money-to-json-jpy",
+          "op": "moneyToJson",
+          "in": [
+            "1200",
+            "JPY"
+          ],
+          "note": "Zero decimal places — the scale is the currency's.",
+          "out": "{\"amount\":\"1200\",\"currency\":\"JPY\"}"
+        },
+        {
+          "id": "money-to-json-bhd",
+          "op": "moneyToJson",
+          "in": [
+            "12.340",
+            "BHD"
+          ],
+          "out": "{\"amount\":\"12.340\",\"currency\":\"BHD\"}"
+        },
+        {
+          "id": "percentage-to-json",
+          "op": "percentageToJson",
+          "in": [
+            "17.5"
+          ],
+          "note": "A bare string, not an object — the canonical num/den form already is the wire form.",
+          "out": "\"7/40\""
+        },
+        {
+          "id": "localdate-to-json",
+          "op": "localDateToJson",
+          "in": [
+            "2011-01-04"
+          ],
+          "out": "\"2011-01-04\""
+        }
+      ]
+    },
+    {
+      "rule": "toJSON on a container — TaxRate has NO JSON code of its own, in either language. This is the platform walking its properties and firing each value's own rule, and it is where the two default to disagreeing: .NET emits the CLR property name (PascalCase) where JavaScript emits the field as written, and .NET writes an enum as its ordinal where the generated TypeScript enum is string-valued. Both are configured to match the contract; this case is what says so.",
+      "cases": [
+        {
+          "id": "taxrate-to-json",
+          "op": "taxRateToJson",
+          "in": [
+            "GBR",
+            "20"
+          ],
+          "note": "Four different rules in one payload: a reference type as its key, two enums as text, and a wrapper primitive as its canonical string — none of which TaxRate knows anything about.",
+          "out": "{\"jurisdiction\":\"GBR\",\"taxType\":\"VAT\",\"category\":\"Standard\",\"rate\":\"1/5\"}"
+        }
+      ]
+    },
+    {
+      "rule": "fromJson — reading the wire form back. Strict in every direction; the answer is the value's own rendering, so a case that parses to the wrong value fails even when it parses.",
+      "cases": [
+        {
+          "id": "money-from-json",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":\"12.34\",\"currency\":\"GBP\"}"
+          ],
+          "out": "12.34 GBP"
+        },
+        {
+          "id": "money-from-json-reordered",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"currency\":\"GBP\",\"amount\":\"12.34\"}"
+          ],
+          "note": "Accepted: a JSON object is unordered by RFC 8259, so key order is not part of a value's encoding. Emitted order is fixed, which is what the toJSON cases pin — the two are different claims.",
+          "out": "12.34 GBP"
+        },
+        {
+          "id": "money-from-json-jpy",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":\"1200\",\"currency\":\"JPY\"}"
+          ],
+          "out": "1200 JPY"
+        }
+      ]
+    },
+    {
+      "rule": "fromJson rejected. The unknown-property case is the load-bearing one: an ignored field would be dropped on the way back out, so one value would have two encodings and the wire round trip would stop holding. Strictness here is what the property rests on, not fastidiousness.",
+      "cases": [
+        {
+          "id": "rej-unknown-property",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":\"12.34\",\"currency\":\"GBP\",\"note\":\"x\"}"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-missing-currency",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":\"12.34\"}"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-missing-amount",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"currency\":\"GBP\"}"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-unknown-currency",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":\"12.34\",\"currency\":\"XXX\"}"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-wrong-scale",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":\"12.3\",\"currency\":\"GBP\"}"
+          ],
+          "note": "The amount grammar still applies — fromJson shares fromMajor rather than growing a second parser.",
+          "error": true
+        },
+        {
+          "id": "rej-signed-zero",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":\"-0.00\",\"currency\":\"GBP\"}"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-json-number",
+          "op": "moneyFromJson",
+          "in": [
+            "{\"amount\":12.34,\"currency\":\"GBP\"}"
+          ],
+          "note": "Every numeric payload is a string, never a JSON number — float64 cannot hold what the data can.",
+          "error": true
+        },
+        {
+          "id": "rej-not-an-object",
+          "op": "moneyFromJson",
+          "in": [
+            "\"12.34 GBP\""
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-array",
+          "op": "moneyFromJson",
+          "in": [
+            "[\"12.34\",\"GBP\"]"
+          ],
+          "error": true
+        }
+      ]
+    },
+    {
+      "rule": "properties — invariants that must hold for every input, so the expected value is \"true\" and comes from the rule rather than from any implementation. Two of them, saying different things.",
+      "cases": [
+        {
+          "id": "prop-value-roundtrip",
+          "op": "property.valueRoundTrip",
+          "in": [
+            "12.34",
+            "GBP"
+          ],
+          "out": "true",
+          "note": "fromJson(toJSON(x)) == x — nothing is lost on the way out."
+        },
+        {
+          "id": "prop-value-roundtrip-jpy",
+          "op": "property.valueRoundTrip",
+          "in": [
+            "1200",
+            "JPY"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-value-roundtrip-bhd",
+          "op": "property.valueRoundTrip",
+          "in": [
+            "12.340",
+            "BHD"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-value-roundtrip-negative",
+          "op": "property.valueRoundTrip",
+          "in": [
+            "-0.01",
+            "GBP"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-wire-roundtrip",
+          "op": "property.wireRoundTrip",
+          "in": [
+            "{\"amount\":\"12.34\",\"currency\":\"GBP\"}"
+          ],
+          "out": "true",
+          "note": "toJSON(fromJson(w)) == w over a canonical w — nothing else survives. This holds only because the wire form has one encoding per value, so it is simultaneously a test of canonicality: relax the parser to accept \"12.3\" and it fails at once, because toJSON emits \"12.30\"."
+        },
+        {
+          "id": "prop-wire-roundtrip-jpy",
+          "op": "property.wireRoundTrip",
+          "in": [
+            "{\"amount\":\"1200\",\"currency\":\"JPY\"}"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-wire-roundtrip-zero",
+          "op": "property.wireRoundTrip",
+          "in": [
+            "{\"amount\":\"0.00\",\"currency\":\"GBP\"}"
+          ],
+          "out": "true"
+        }
+      ]
+    }
+  ]
+}

@@ -19,4 +19,14 @@ export class Currency {
     /** Minor-unit exponent — decimal places in the smallest unit (GBP 2, JPY 0, BHD 3). */
     readonly minorUnits: number,
   ) {}
+
+  /**
+   * The wire form: the identity alone. A reference type travels as its key and never as an
+   * inlined record — one rule for every table row (f8n/DESIGN.md -> Reference types travel as
+   * their key). Reading one back needs the generated index, which imports this module, so
+   * `fromJson` is a free function in the lookup module rather than a static here.
+   */
+  toJSON(): string {
+    return this.code;
+  }
 }

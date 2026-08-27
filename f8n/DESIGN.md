@@ -269,12 +269,23 @@ and `Money` wants a converter regardless, since its wire form is not its field l
 Both are **properties**, asserted in both languages, and they say different things:
 
 - **Value round trip** — `fromJson(toJSON(x)) == x`. Nothing is lost on the way out.
-- **Wire round trip** — `toJSON(fromJson(w)) == w`. Nothing *else* is accepted on the way in.
+- **Wire round trip** — `toJSON(fromJson(w)) == w`, **over a canonical `w`**. Nothing *else*
+  survives a round trip.
 
 The second is the stronger and the less obvious of the two. It holds only if the wire form is
 **canonical** — one encoding per value — so it is simultaneously a test *of* canonicality.
 Relax the parser to accept `"12.3"` for GBP and it fails immediately, because `toJSON` emits
-`"12.30"`. That is the strict-grammar promise made executable instead of documented.
+`"12.30"`. That is the strict-grammar promise made executable instead of documented, and it is
+what rejecting unknown properties is *for*: an ignored field is dropped on the way back out,
+which is one value with two encodings.
+
+**The qualifier matters, and writing the vectors is what exposed it.** The property is over
+canonical encodings, not over everything `fromJson` accepts — because **key order is not part
+of a value's encoding**. A JSON object is unordered by RFC 8259, so
+`{"currency":"GBP","amount":"12.34"}` is accepted and re-emits in the canonical order, which
+is correct and is not a round-trip failure. *Emitted* order, by contrast, is fixed and is part
+of the bytes: it is what the `toJSON` vectors pin, and it has to agree across languages. Two
+different claims that look like one until a test forces them apart.
 
 ## Design agenda (decisions to make)
 - [x] **Money arithmetic conformance** — **Resolved (mechanism): not codegen — hand-maintained classes, golden-vector-verified.** Both langs run the identical integer algorithm on scaled integers (`bigint`/`BigInteger` intermediates, never native `decimal`); the whole claim collapses onto one shared **`divide-with-rounding`** fn, which the vectors target. `c5n` generates the *data* the classes consume (currency scales etc.), not the math. *(Was framed as a codegen question; the c5n "generate data, hand-write algorithm" split answers it. Implementation of the two class sets + the vectors is build work.)*

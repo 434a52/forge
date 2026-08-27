@@ -14,6 +14,29 @@
  * `any`.
  */
 export class Percentage {
+  /**
+   * The wire form: the canonical "num/den" string.
+   *
+   * Spelled toJSON, not toJson — JSON.stringify recognises only the spec name, and calls it
+   * on nested values too, so a Percentage inside another object serialises correctly without
+   * that object knowing anything about it. Returns a value, never a string of JSON: what is
+   * returned gets spliced, so a JSON string would arrive double-encoded.
+   */
+  toJSON(): string {
+    return this.toString();
+  }
+
+  /**
+   * Reads the wire form. Strict — it shares `parse`, which accepts the canonical encoding and
+   * nothing else, so a value has exactly one spelling on the wire.
+   */
+  static fromJson(value: unknown): Percentage {
+    if (typeof value !== "string") {
+      throw new Error(`a Percentage is the string "num/den", got ${typeof value}`);
+    }
+    return Percentage.parse(value);
+  }
+
   /** Numerator, carrying the sign. */
   readonly num: bigint;
 

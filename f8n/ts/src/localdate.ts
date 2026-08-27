@@ -13,6 +13,19 @@
  * conformance surface, so the grammar is implemented here and pinned by vectors.
  */
 export class LocalDate {
+  /** The wire form: the canonical YYYY-MM-DD string. See Percentage.toJSON on the spelling. */
+  toJSON(): string {
+    return this.toString();
+  }
+
+  /** Reads the wire form. Strict — it shares `parse`, so the wire accepts one spelling. */
+  static fromJson(value: unknown): LocalDate {
+    if (typeof value !== "string") {
+      throw new Error(`a LocalDate is the string "YYYY-MM-DD", got ${typeof value}`);
+    }
+    return LocalDate.parse(value);
+  }
+
   /** Proleptic Gregorian year, 1 through 9999. */
   readonly year: number;
 

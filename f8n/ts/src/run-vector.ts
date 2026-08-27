@@ -14,6 +14,9 @@ import { EffectiveDated } from "./effectivedated.js";
 import { BHD, EUR, GBP, JPY, USD } from "./generated/currency.data.js";
 import { LocalDate } from "./localdate.js";
 import { Money } from "./money.js";
+import { TaxRate } from "./taxrate.js";
+import { TaxCategory } from "./generated/taxcategory.data.js";
+import { TaxType } from "./generated/taxtype.data.js";
 import { divideWithRounding, RoundingMode } from "./rounding.js";
 import { Percentage } from "./percentage.js";
 
@@ -51,6 +54,10 @@ const knownOperations = new Map<string, Set<string>>([
     "asOf", "property.asOfAtEachBoundary", "property.orderIndependence",
   ])],
   ["f8n.Country", new Set(["find", "property.formsAgree"])],
+  ["f8n.Json", new Set([
+    "moneyToJson", "moneyFromJson", "percentageToJson", "localDateToJson", "taxRateToJson",
+    "property.valueRoundTrip", "property.wireRoundTrip",
+  ])],
   ["f8n.Rounding", new Set(["divide", "property.signSymmetric"])],
   ["f8n.Money", new Set([
     "fromMajor", "fromMinor", "multiplyByRate", "divideBy",
@@ -214,6 +221,29 @@ function formsAgree(alpha2: string, alpha3: string, numeric: string): string {
   return "true";
 }
 
+/** fromJson(toJSON(x)) == x — nothing is lost on the way out. */
+function jsonValueRoundTrip(amount: string, code: string): string {
+  const original = Money.fromMajor(amount, lookupCurrency(code));
+  const back = Money.fromJson(JSON.parse(JSON.stringify(original)));
+  if (!back.equals(original)) {
+    return `${original.toString()} serialised and read back as ${back.toString()}`;
+  }
+  return "true";
+}
+
+/**
+ * toJSON(fromJson(w)) == w, over a CANONICAL w — nothing else survives a round trip, which
+ * holds only because the wire form has one encoding per value and unknown properties are
+ * rejected rather than dropped.
+ */
+function jsonWireRoundTrip(wire: string): string {
+  const back = JSON.stringify(Money.fromJson(JSON.parse(wire)));
+  if (back !== wire) {
+    return `${wire} read back and re-emitted as ${back}`;
+  }
+  return "true";
+}
+
 /** Every entry is in effect on the day it takes effect. */
 function asOfAtEachBoundary(): string {
   for (const [from, expected] of fixtureEntries) {
@@ -295,6 +325,24 @@ function execute(subject: string, op: string, inputs: string[]): string {
       return findCountry(inputs[0])?.alpha3 ?? "(none)";
     case "f8n.Country.property.formsAgree":
       return formsAgree(inputs[0], inputs[1], inputs[2]);
+    case "f8n.Json.moneyToJson":
+      return JSON.stringify(Money.fromMajor(inputs[0], lookupCurrency(inputs[1])));
+    case "f8n.Json.moneyFromJson":
+      return Money.fromJson(JSON.parse(inputs[0])).toString();
+    case "f8n.Json.percentageToJson":
+      return JSON.stringify(Percentage.fromPercent(inputs[0]));
+    case "f8n.Json.localDateToJson":
+      return JSON.stringify(LocalDate.parse(inputs[0]));
+    // The nested case: TaxRate has no toJSON of its own, so this is JSON.stringify walking a
+    // container and firing each value's own hook.
+    case "f8n.Json.taxRateToJson":
+      return JSON.stringify(new TaxRate(
+        findCountry(inputs[0])!, TaxType.VAT, TaxCategory.Standard,
+        Percentage.fromPercent(inputs[1])));
+    case "f8n.Json.property.valueRoundTrip":
+      return jsonValueRoundTrip(inputs[0], inputs[1]);
+    case "f8n.Json.property.wireRoundTrip":
+      return jsonWireRoundTrip(inputs[0]);
     default:
       throw new Error(`unknown op ${op} for ${subject}`);
   }

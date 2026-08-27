@@ -45,7 +45,7 @@ comparison, and `HalfUp` toward +∞).
 the rule for the types that travel beside it. This is the phase `c5n`'s generated `fromJson`
 sits on top of, so it comes before any new consumer.
 
-- [ ] **B.1 — `toJSON` / `fromJson` on the primitives.** `Money` as
+- ✓ **B.1 — `toJSON` / `fromJson` on the primitives.** `Money` as
   `{"amount":"12.34","currency":"GBP"}`; `Percentage` and `LocalDate` as their canonical
   strings, which already exist. Strict in both directions, sharing the parsers already
   written rather than growing second ones. Smaller than it looks outbound: only a type whose
@@ -58,13 +58,13 @@ sits on top of, so it comes before any new consumer.
   hand-written** (`Country.Find` / `findCountry`) because deciding which form a string is
   needs domain knowledge the schema does not hold. Ingestion only — the wire still takes
   alpha-3 alone.
-- [ ] **B.2 — reference types travel as their key.** `Country` and `Currency` as `"GBR"` /
+- ✓ **B.2 — reference types travel as their key.** `Country` and `Currency` as `"GBR"` /
   `"GBP"`, resolved back through the generated key index from B.0. Wire side only: alpha-3,
   strictly, with the other forms staying on the ingestion path.
-- [ ] **B.3 — enums travel as their member name.** Already decided (`DESIGN.md` → *Enums
+- ✓ **B.3 — enums travel as their member name.** Already decided (`DESIGN.md` → *Enums
   travel as their member name*) and already true in TypeScript by construction; C# needs
   configuring to write strings rather than the serialiser's numeric default.
-- [ ] **B.4 — vectors and properties for the wire form.** Two halves doing different jobs.
+- ✓ **B.4 — vectors and properties for the wire form.** Two halves doing different jobs.
   **Vectors** feed the same input to both languages and pin the exact bytes — a `toJson` case
   whose expected value is the serialised string, a `fromJson` case whose input is that string
   — which is what makes C#'s output TS-readable, transitively through the shared dataset. The
@@ -72,7 +72,12 @@ sits on top of, so it comes before any new consumer.
   carry no expected value: `fromJson(toJSON(x)) == x` and `toJSON(fromJson(w)) == w`. Reject
   cases carry the weight in the vectors, as they do for the amount grammar.
 
-**Checkpoint:** a `TaxRate` round-trips through JSON in both languages, byte-identically.
+**Checkpoint reached.** A `TaxRate` serialises byte-identically in both languages — and it
+carries no JSON code of its own in either, which is the point: four different rules fire in one
+payload (a reference type as its key, two enums as text, a wrapper primitive as its canonical
+string) with the container knowing none of them. Both C# defaults had to be corrected to get
+there, and removing either correction turns that one case red while every other case stays
+green: `{"Jurisdiction":"GBR","TaxType":0,…}`.
 
 ## Phase C — `allocate`
 
@@ -107,6 +112,16 @@ piece of behaviour left.
 - **Packaging** — npm (ESM) + NuGet, versioning, tree-shaking structure.
 
 ## Change log
+- 2026-08-27: **Phase B done — the wire form works in both languages, byte-identically.**
+  B.1–B.4 in one pass, because they turned out to be one thing: `Money`'s `fromJson` needs the
+  currency key index, which is B.2, and the nested case needs enums as text, which is B.3.
+  27 vector cases, expected values **authored from the design doc rather than captured**, and
+  both implementations matched on the first run. The container case earned its place
+  immediately: .NET defaults to PascalCase property names and numeric enums, so `TaxRate` —
+  which has no JSON code in either language — was the one place the two silently disagreed.
+  Also corrected a property statement that writing the tests exposed as overstated: the wire
+  round trip holds over *canonical* encodings, not over everything `fromJson` accepts, because
+  key order is not part of a value's encoding.
 - 2026-08-27: **the JSON interface is pinned before B.1 is written, and "envelope" stops
   meaning two things.** `envelope:` is a `c5n` schema keyword for the fields that key a series
   entry, so this phase is now *the wire form* — the JSON shape around a value, which is a fact
