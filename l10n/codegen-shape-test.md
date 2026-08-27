@@ -112,10 +112,26 @@ are both words, why not drop `none` and let **`zero` mean "n = 0" everywhere** �
 where the locale has one, an exact match where it does not? It would remove exact matches from
 the syntax altogether. It is also **wrong, and dangerously so.**
 
-**Latvian's `zero` category is `n % 10 = 0 or n % 100 = 11..19`** — it matches 0, 10, 11…19, 20,
-30, 40. A message using `zero` to mean "none" renders **"no accounts" for twenty accounts** in
-Latvian. (Arabic, Cornish, Chuvash, Colognian and Anii do use `n = 0`; Latvian and Prussian do
-not, and one counter-example is enough.)
+**Latvian's `zero` category is `n % 10 = 0 or n % 100 = 11..19 or v = 2 and f % 100 = 11..19`**
+— it matches 0, 10, 11…19, 20, 30, 40. A message using `zero` to mean "none" renders **"no
+accounts" for twenty accounts** in Latvian.
+
+Verified against `common/supplemental/plurals.xml`. Ten locale codes carry a `zero` category,
+and they split two ways:
+
+| condition | locales |
+|---|---|
+| `n = 0` | `cy`, `ar`, `ars`, `kw`, `cv`, `ksh`, `blo`, `lag` |
+| `n % 10 = 0 or n % 100 = 11..19 or v = 2 and f % 100 = 11..19` | **`lv`, `prg`** |
+
+**And this is the part worth keeping.** Welsh's `zero` *is* `n = 0` — so the collapse would have
+worked perfectly in Welsh, the language anyone would reach for as the six-category test case.
+It fails only in Latvian (Prussian being a revival with negligible use). **Validated against the
+obvious representative locale, the bug ships.**
+
+That is the *uniform correctness or uniform wrongness* problem one layer up from where this
+design usually worries about it, and it is directly actionable: **the fixture locale set has to
+name Latvian specifically**, not merely "a language with many categories".
 
 So the separation of exact matches from categories is load-bearing rather than inherited — and
 this is *why ICU has `=0` at all*, which reads as ceremony until you meet a language where
@@ -271,6 +287,15 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **verified the plural facts from `plurals.xml`, and the counter-example got
+  sharper.** Welsh does have six categories, so the claim used throughout stands. Ten locale
+  codes carry a `zero` category and they split cleanly: eight define it as `n = 0`, while **`lv`
+  and `prg` alone** define it as `n % 10 = 0 or n % 100 = 11..19 …`. Since Prussian is a
+  revival, **Latvian is effectively the only living language where `zero` does not mean zero** —
+  and **Welsh's `zero` is `n = 0`**, so the collapse this doc rejects would have passed a test
+  against the obvious six-category locale and failed only in Latvian. Consequence for the
+  fixtures: the locale set must name Latvian specifically, not just "a language with many
+  categories".
 - 2026-08-27: **Latvian settles the exact-match question, against the tidier answer.** The
   instinct that a uniform word list beats a mix leads to collapsing `none` into `zero` and
   dropping exact matches entirely — which fails, because **Latvian's `zero` category matches
@@ -279,8 +304,9 @@ is `c5n` grown to serve a shape that does not hold.
   bare numbers rather than the `=` sigil, since a number cannot collide with a category name.
   Also noted: the same example carried `many=`, which is not an English category, making it the
   second real example in two to contain an unfireable branch.
-  **Unverified claim to check:** this doc says Welsh has six categories. That is from memory —
-  the CLDR chart fetch did not surface Welsh — and it is used in several places here.
+  **Welsh's six categories confirmed** from `plurals.xml` — `zero` (n = 0), `one`, `two`, `few`
+  (n = 3), `many` (n = 6), `other` — so the claim used throughout this doc stands; an earlier
+  chart fetch had simply missed the row.
 - 2026-08-27: **case 7 has a real example, and it argues the syntax should change.** Writing
   exact matches as bare numbers (`1=`) rather than ICU's `=1=` is unambiguous — categories are
   words, exact values are numbers — and it removes the second-`=` parse wrinkle `DESIGN.md`
