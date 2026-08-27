@@ -136,6 +136,61 @@ fallback question.
 read only approved entries — and if so, is an unapproved locale a hole (case 11) or the
 previous approved value? This is where the pipeline and the codegen meet, and neither doc says.
 
+### 13. ⚠ A value hint and a selector that is never displayed — **REAL**
+**Real:** `You have {balance:currency} in {count:plural|one=account|other=accounts}`
+**Forces:** three things, and the middle one is a gap in the design.
+
+- Two arguments of different kinds in one message — one value hint, one selector — so the
+  signature draws from two hint families. Expected to be fine; confirm.
+- **`count` selects but is never rendered.** `DESIGN.md`'s rule is that *"the format hint's
+  digit count **is** the plural's `v` operand"* — which assumes the pluralised value is also
+  displayed. Here it is not, so **there is no digit count and `v` is unspecified.** CLDR plural
+  selection needs it. `v = 0` is the sane default, but it is a *decision the design does not
+  state*, and it is a conformance surface: both languages must choose identically or `1.0`
+  categorises differently in each. Rarely visible in English; visible in Welsh and Arabic.
+- **What type is a bare `plural` argument?** The hint table maps `number-N` to
+  `FixedDecimal`/number, but `plural` alone maps to nothing. Undecided.
+
+### 13a. A mistyped category name
+**Real:** the case above, as first written: `{count:plural|ome=account|other=accounts}`
+**Forces:** `ome` is not a category in any locale's set. **Is that a build error?** If not, the
+branch is unreachable and every count silently renders `accounts` — including "1 accounts",
+which reads as a bug in the prose rather than in the tooling. Categories are a closed set per
+locale and the front-end knows it, so this should fail at build time and name the message.
+
+*Worth contrasting with the sibling typo in the same string — `acount` for `account`. That one
+is prose, and nothing can catch it; it is what translation review is for. A mistyped
+**category** is structural and the build should refuse it. The two typos arriving together is
+a clean illustration of where the machine boundary actually falls.*
+
+### 14. ⚠ A link whose URL is a locale-varying constant — **REAL**
+**Real:** `Do you agree to the [terms & condition]({terms-and-conditions-url})`, where
+`terms-and-conditions-url` is a key in a **constants data file**, with per-locale overrides and
+en-GB as the default.
+**Forces:** `inline-formatting.md` covers `[text](url)` thoroughly — but its own example says
+*"external link — URL is a param"*. A constant is a **different binding**, and it is not in
+either doc.
+
+- **It must not enter the typed signature.** The caller supplies state, not content; a consent
+  checkbox should not have to know the T&C URL. So the front-end has to distinguish a
+  *parameter* reference from a *constant* reference — and **that needs explicit syntax, not
+  resolution by lookup.** "If the name resolves in the constants file it is a constant, else a
+  parameter" is a silent-divergence trap: a mistyped parameter that collides with a constant
+  name quietly stops being required, and renaming a constant quietly *adds a parameter* and
+  changes the signature. Some sigil is needed. *(Undecided which.)*
+- **Fallback.** Per-locale overrides with an en-GB default is the same fallback shape messages
+  need (cases 4 and 11). One resolver, used twice — not two mechanisms.
+- **Where it resolves is the interesting question, and the answer looks like "at lowering
+  time".** If the front-end resolves constants while lowering, the reference becomes an
+  ordinary literal part in each locale's message data, fallback already applied. No third tree
+  at runtime, no constant lookup in the interpreter, no growth in the parts model or the
+  conformance surface. The URL is duplicated into every message referencing it, which is build
+  output and free, and a constant change is a regeneration the drift-guard already catches.
+  **That reduces machinery rather than adding it**, which is the shape this design usually
+  wants — logic at build time, data at runtime.
+- `terms & condition` carries an `&`, which `inline-formatting.md` already handles
+  (auto-escaped by the sink).
+
 ---
 
 ## Structural questions, not per-message
@@ -144,6 +199,9 @@ previous approved value? This is where the pipeline and the codegen meet, and ne
   tree both fall out of `tree<T>`, or does one need something else?
 - **Where does locale fallback live** — `en-GB` → `en` → root? Generated (output multiplies) or
   runtime (a lookup chain)?
+- **Is a constants file a `c5n` concern at all?** If constants resolve at lowering time
+  (case 14) then `c5n` never sees them and the answer is no — which is the preferred outcome,
+  and worth confirming rather than assuming.
 - **What does `c5n` need that it does not have?** The deliverable of this exercise. Expect at
   minimum `tree<T>`, typed-shim emit, and fine-grained output layout — but the *specification*
   of each is what is missing, and it should come from these cases rather than from the stress
@@ -162,6 +220,14 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **first two real examples, and both found something.** A plural driver that is
+  never displayed leaves the `v` operand unspecified, since the coupling rule assumes the
+  pluralised value is also rendered — and a bare `plural` argument has no declared type. A link
+  whose URL is a **locale-varying constant** rather than a parameter is in neither design doc:
+  it must stay out of the typed signature, it needs explicit syntax rather than
+  resolve-by-lookup, and it probably resolves at lowering time, which would keep it out of
+  `c5n` and out of the interpreter entirely. Added a case for a mistyped plural category, which
+  arrived by accident and is exactly the class of structural error the build should refuse.
 - 2026-08-27: created, as the validation the `candidate` banner has been asking for since
   2026-07-04. Twelve cases derived from `DESIGN.md`'s own hard cases, with stand-ins so the
   walk can start before the real corpus is available. One finding recorded before any case was
