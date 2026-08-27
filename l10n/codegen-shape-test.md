@@ -171,23 +171,36 @@ en-GB as the default.
 *"external link — URL is a param"*. A constant is a **different binding**, and it is not in
 either doc.
 
-- **It must not enter the typed signature.** The caller supplies state, not content; a consent
-  checkbox should not have to know the T&C URL. So the front-end has to distinguish a
-  *parameter* reference from a *constant* reference — and **that needs explicit syntax, not
-  resolution by lookup.** "If the name resolves in the constants file it is a constant, else a
-  parameter" is a silent-divergence trap: a mistyped parameter that collides with a constant
-  name quietly stops being required, and renaming a constant quietly *adds a parameter* and
-  changes the signature. Some sigil is needed. *(Undecided which.)*
+- **It is an optional parameter with the constant as its default** *(clarified 2026-08-27)*.
+  The caller may pass a URL; if they do not, the constant applies. So the name *is* in the
+  signature — as optional — rather than absent from it.
+- **Optionality should be declared in the message, not inferred from the constants file.**
+  Resolve-by-lookup ("if the name matches a constants key it is optional") has one loud
+  failure and one silent one, and only the silent one matters. *Loud:* remove or rename a
+  constant and a previously-optional parameter becomes required, failing to compile at every
+  call site — fine. *Silent:* **add** a constant whose name collides with an existing required
+  parameter and that parameter quietly becomes optional, so call sites that forget it now
+  compile and render the constant. Adding a constant would change the arity of unrelated
+  messages. Marking it in the message — `{terms-and-conditions-url?}` or similar — means a
+  message has to opt in, and nothing can change underneath it. *(Syntax undecided.)*
+- **The signature gains an optional parameter**, which must be optional *identically* in both
+  languages (`url?: string` / `string? url = null`) or the conformance claim has a hole. Open:
+  can a constant default anything other than a string — a `Money`, a date? The answer bounds
+  the feature.
 - **Fallback.** Per-locale overrides with an en-GB default is the same fallback shape messages
   need (cases 4 and 11). One resolver, used twice — not two mechanisms.
-- **Where it resolves is the interesting question, and the answer looks like "at lowering
-  time".** If the front-end resolves constants while lowering, the reference becomes an
-  ordinary literal part in each locale's message data, fallback already applied. No third tree
-  at runtime, no constant lookup in the interpreter, no growth in the parts model or the
-  conformance surface. The URL is duplicated into every message referencing it, which is build
-  output and free, and a constant change is a regeneration the drift-guard already catches.
-  **That reduces machinery rather than adding it**, which is the shape this design usually
-  wants — logic at build time, data at runtime.
+- **It still resolves at lowering time — but into a *default*, not a literal.** Since the
+  caller may override, the value cannot be inlined as a plain literal: at render time nobody
+  knows yet whether an argument arrived. It does not need a runtime constants tree either. The
+  **shim cannot carry the default**, because the shim tree is locale-neutral and the constant
+  is locale-varying; so the **per-locale message data carries it**, and the parts model gains
+  one node meaning *interpolate `name`, or this literal if absent*. The interpreter gains one
+  branch.
+
+  That is still the good outcome: constants are consumed **entirely at lowering**, there is no
+  third tree at runtime, and `c5n` never learns they exist. One small part kind rather than
+  none is a fair price for the caller being able to override. A constant change is a
+  regeneration the drift-guard already catches.
 - `terms & condition` carries an `&`, which `inline-formatting.md` already handles
   (auto-escaped by the sink).
 
@@ -220,6 +233,14 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **case 14 revised — the constant is a *default* for an optional parameter, not a
+  binding of its own.** That corrects an overstatement: resolve-by-lookup fails loudly when a
+  constant is removed (every call site stops compiling) and silently only when one is *added*
+  that collides with a required parameter's name, changing an unrelated message's arity.
+  Optionality should therefore be marked in the message rather than inferred. It also revises
+  where the constant lands: not an inlined literal, since the caller may override, but a
+  default carried in the per-locale message data — one new part kind, no runtime constants
+  tree, and still nothing for `c5n` to know about.
 - 2026-08-27: **first two real examples, and both found something.** A plural driver that is
   never displayed leaves the `v` operand unspecified, since the coupling rule assumes the
   pluralised value is also rendered — and a bare `plural` argument has no declared type. A link
