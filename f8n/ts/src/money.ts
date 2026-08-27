@@ -1,3 +1,4 @@
+import { type AllocationRule, distribute } from "./allocation.js";
 import type { Currency } from "./currency.js";
 import { byCode } from "./generated/currency.data.js";
 import type { Percentage } from "./percentage.js";
@@ -185,6 +186,32 @@ export class Money {
   multiplyByRate(rate: Percentage, mode: RoundingMode): Money {
     const scaled = this.minor * rate.num;
     return new Money(this.currency, divideWithRounding(scaled, rate.den, mode));
+  }
+
+  /**
+   * Splits into `parts` equal shares that sum back to this amount exactly.
+   *
+   * A different discipline from `divideBy`, which is why it is a different operation and takes
+   * an `AllocationRule` rather than a `RoundingMode`. Dividing £100 three ways gives 33.33
+   * three times and loses a penny; this gives 33.34, 33.33, 33.33 and loses nothing.
+   */
+  allocate(parts: number, rule: AllocationRule): Money[] {
+    if (!Number.isInteger(parts) || parts < 1) {
+      throw new Error("a partition has at least one part");
+    }
+    return this.allocateByWeights(new Array<bigint>(parts).fill(1n), rule);
+  }
+
+  /**
+   * Splits proportionally to `weights`, summing back to this amount exactly.
+   *
+   * Weights are whole numbers rather than proportions, which loses nothing: 60/40 and 3/2
+   * describe the same split, and integers keep every share exact without a common denominator
+   * to agree on. The only rounding anywhere is the deterministic hand-out of the leftover
+   * units.
+   */
+  allocateByWeights(weights: readonly bigint[], rule: AllocationRule): Money[] {
+    return distribute(this.minor, weights, rule).map((share) => new Money(this.currency, share));
   }
 
   /** Divides, landing back on the currency's dp. Does not conserve — see allocate. */

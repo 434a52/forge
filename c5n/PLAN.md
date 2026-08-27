@@ -208,8 +208,8 @@ the rational parse rather than money math, so the harness is shaped on an easy c
   `LocalDate`, `compareTo` as a total order, and — for `EffectiveDated` — every entry being
   in effect on its own start date, plus **order independence**, which pins the claim that the
   type sorts its own entries and was otherwise untested. A failing property reports what
-  broke rather than "false". The `allocate` invariants stay listed above and arrive with
-  `Money`. Seen to fail: comparing day before month turned `prop-date-order` red in C# alone,
+  broke rather than "false". The `allocate` invariants listed above **landed 2026-08-27**
+  with `Money`'s conserving partition — see `../f8n/vectors/allocation.json`. Seen to fail: comparing day before month turned `prop-date-order` red in C# alone,
   with the message `2010-01-02 does not sort before 2010-02-01`.*
 - ✓ **3.2 — a `run-vector` CLI per language.** Thin by design: read the dataset, execute
   each case, report what it got. No assertions, no test framework, and it ignores any

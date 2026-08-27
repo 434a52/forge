@@ -206,6 +206,46 @@ public readonly struct Money : IEquatable<Money>, IComparable<Money>
         return new Money(Currency, Rounding.DivideWithRounding(scaled, rate.Den, mode));
     }
 
+    /// <summary>
+    /// Splits into <paramref name="parts"/> equal shares that sum back to this amount exactly.
+    /// </summary>
+    /// <remarks>
+    /// A different discipline from <see cref="Divide"/>, which is why it is a different
+    /// operation and takes an <see cref="AllocationRule"/> rather than a
+    /// <see cref="RoundingMode"/>. Dividing £100 three ways gives 33.33 three times and loses
+    /// a penny; this gives 33.34, 33.33, 33.33 and loses nothing.
+    /// </remarks>
+    public Money[] Allocate(int parts, AllocationRule rule)
+    {
+        if (parts < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(parts), parts, "a partition has at least one part");
+        }
+        var weights = new BigInteger[parts];
+        Array.Fill(weights, BigInteger.One);
+        return AllocateByWeights(weights, rule);
+    }
+
+    /// <summary>
+    /// Splits proportionally to <paramref name="weights"/>, summing back to this amount exactly.
+    /// </summary>
+    /// <remarks>
+    /// Weights are whole numbers rather than proportions, which loses nothing: 60/40 and 3/2
+    /// describe the same split, and integers keep every share exact without a common
+    /// denominator to agree on. The only rounding anywhere is the deterministic hand-out of
+    /// the leftover units.
+    /// </remarks>
+    public Money[] AllocateByWeights(IReadOnlyList<BigInteger> weights, AllocationRule rule)
+    {
+        var shares = Allocation.Distribute(Minor, weights, rule);
+        var parts = new Money[shares.Length];
+        for (var i = 0; i < shares.Length; i++)
+        {
+            parts[i] = new Money(Currency, shares[i]);
+        }
+        return parts;
+    }
+
     /// <summary>Divides, landing back on the currency's dp. Does not conserve — see allocate.</summary>
     public Money Divide(BigInteger divisor, RoundingMode mode)
     {

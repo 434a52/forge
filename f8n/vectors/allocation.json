@@ -1,0 +1,372 @@
+{
+  "version": 1,
+  "subject": "f8n.Allocation",
+  "groups": [
+    {
+      "rule": "allocate — an equal split that conserves. Inputs are amount, currency, part count, rule. Contrast money.json's divide-thirds, where 100.00 / 3 gives 33.33 and three of those is 99.99: this is the operation that exists because that one loses a penny, which is also why it takes an AllocationRule rather than a RoundingMode.",
+      "cases": [
+        {
+          "id": "equal-thirds",
+          "op": "allocate",
+          "in": [
+            "100.00",
+            "GBP",
+            "3",
+            "LargestRemainder"
+          ],
+          "note": "The penny that divide loses. Every part has the same remainder here, so the tie-break — ascending index — decides, which makes ties the normal case for an equal split rather than an edge one.",
+          "out": "33.34 33.33 33.33"
+        },
+        {
+          "id": "equal-thirds-sequential",
+          "op": "allocate",
+          "in": [
+            "100.00",
+            "GBP",
+            "3",
+            "Sequential"
+          ],
+          "note": "Identical to LargestRemainder, and necessarily so: an equal split gives every part the same remainder, so Hamilton's tie-break IS sequential order. The rules only diverge under weights.",
+          "out": "33.34 33.33 33.33"
+        },
+        {
+          "id": "equal-thirds-designated",
+          "op": "allocate",
+          "in": [
+            "100.00",
+            "GBP",
+            "3",
+            "Designated:2"
+          ],
+          "note": "A nominated ledger line absorbs the residual instead.",
+          "out": "33.33 33.33 33.34"
+        },
+        {
+          "id": "equal-two-leftover",
+          "op": "allocate",
+          "in": [
+            "0.05",
+            "GBP",
+            "3",
+            "LargestRemainder"
+          ],
+          "note": "Five pence three ways: two units left over, so two parts get one each.",
+          "out": "0.02 0.02 0.01"
+        },
+        {
+          "id": "equal-negative",
+          "op": "allocate",
+          "in": [
+            "-100.00",
+            "GBP",
+            "3",
+            "LargestRemainder"
+          ],
+          "note": "Componentwise the negation of the positive split — which is why the implementation lifts the sign out rather than flooring signed shares.",
+          "out": "-33.34 -33.33 -33.33"
+        },
+        {
+          "id": "equal-jpy",
+          "op": "allocate",
+          "in": [
+            "100",
+            "JPY",
+            "3",
+            "LargestRemainder"
+          ],
+          "note": "Zero dp: the minor unit is the whole unit.",
+          "out": "34 33 33"
+        },
+        {
+          "id": "equal-one-part",
+          "op": "allocate",
+          "in": [
+            "12.34",
+            "GBP",
+            "1",
+            "LargestRemainder"
+          ],
+          "out": "12.34"
+        },
+        {
+          "id": "equal-zero-amount",
+          "op": "allocate",
+          "in": [
+            "0.00",
+            "GBP",
+            "3",
+            "LargestRemainder"
+          ],
+          "out": "0.00 0.00 0.00"
+        },
+        {
+          "id": "equal-more-parts-than-units",
+          "op": "allocate",
+          "in": [
+            "0.02",
+            "GBP",
+            "5",
+            "LargestRemainder"
+          ],
+          "note": "Fewer units than parts: some parts get nothing, and the total is still exact.",
+          "out": "0.01 0.01 0.00 0.00 0.00"
+        }
+      ]
+    },
+    {
+      "rule": "allocateByWeights — proportional, and the only place the rules actually differ. Weights are whole numbers rather than proportions: 60/40 and 3/2 describe the same split, and integers keep every share exact without a common denominator to agree on.",
+      "cases": [
+        {
+          "id": "weighted-simple",
+          "op": "allocateByWeights",
+          "in": [
+            "100.00",
+            "GBP",
+            "60,40",
+            "LargestRemainder"
+          ],
+          "out": "60.00 40.00"
+        },
+        {
+          "id": "weighted-hamilton",
+          "op": "allocateByWeights",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,5",
+            "LargestRemainder"
+          ],
+          "note": "Remainders are 4, 4, 6 with two units to hand out, so the largest goes first and the tie between the other two breaks by index: parts 2 and 0. The case that separates Hamilton from Sequential.",
+          "out": "14.29 14.28 71.43"
+        },
+        {
+          "id": "weighted-sequential",
+          "op": "allocateByWeights",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,5",
+            "Sequential"
+          ],
+          "note": "The same split under the other rule, giving both units to the front. Same total, different lines — which is exactly why f8n refuses to pick a default.",
+          "out": "14.29 14.29 71.42"
+        },
+        {
+          "id": "weighted-designated",
+          "op": "allocateByWeights",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,5",
+            "Designated:1"
+          ],
+          "out": "14.28 14.30 71.42"
+        },
+        {
+          "id": "weighted-zero-hamilton",
+          "op": "allocateByWeights",
+          "in": [
+            "100.01",
+            "GBP",
+            "0,1,1",
+            "LargestRemainder"
+          ],
+          "note": "A zero weight can never receive a unit under Hamilton, and that is provable rather than special-cased: its remainder is zero, and the leftover count is always smaller than the number of parts with a non-zero remainder.",
+          "out": "0.00 50.01 50.00"
+        },
+        {
+          "id": "weighted-zero-sequential",
+          "op": "allocateByWeights",
+          "in": [
+            "100.01",
+            "GBP",
+            "0,1,1",
+            "Sequential"
+          ],
+          "note": "Under Sequential it can, because 'the first parts absorb it' is what the caller asked for. Pinned so it is a documented consequence rather than a surprise.",
+          "out": "0.01 50.00 50.00"
+        }
+      ]
+    },
+    {
+      "rule": "rejected — the partition has to be well posed.",
+      "cases": [
+        {
+          "id": "rej-zero-parts",
+          "op": "allocate",
+          "in": [
+            "100.00",
+            "GBP",
+            "0",
+            "LargestRemainder"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-designated-out-of-range",
+          "op": "allocate",
+          "in": [
+            "100.00",
+            "GBP",
+            "3",
+            "Designated:3"
+          ],
+          "note": "Parts are 0, 1, 2.",
+          "error": true
+        },
+        {
+          "id": "rej-negative-weight",
+          "op": "allocateByWeights",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,-1",
+            "LargestRemainder"
+          ],
+          "error": true
+        },
+        {
+          "id": "rej-all-zero-weights",
+          "op": "allocateByWeights",
+          "in": [
+            "100.00",
+            "GBP",
+            "0,0",
+            "LargestRemainder"
+          ],
+          "note": "Nothing to be proportional to.",
+          "error": true
+        }
+      ]
+    },
+    {
+      "rule": "properties — the two invariants listed in f8n/DESIGN.md and left unused since the harness was built. They carry no expected value, so what they assert comes from the rule rather than from either implementation.",
+      "cases": [
+        {
+          "id": "prop-conserves-thirds",
+          "op": "property.conserves",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,1",
+            "LargestRemainder"
+          ],
+          "out": "true",
+          "note": "sum(allocate(m, rule)) == m. The invariant the operation exists for."
+        },
+        {
+          "id": "prop-conserves-sequential",
+          "op": "property.conserves",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,1",
+            "Sequential"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-conserves-designated",
+          "op": "property.conserves",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,1",
+            "Designated:2"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-conserves-weighted",
+          "op": "property.conserves",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,5",
+            "LargestRemainder"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-conserves-awkward",
+          "op": "property.conserves",
+          "in": [
+            "0.07",
+            "GBP",
+            "1,1,1",
+            "LargestRemainder"
+          ],
+          "out": "true",
+          "note": "Seven pence three ways — more leftover units than a clean split ever produces."
+        },
+        {
+          "id": "prop-conserves-negative",
+          "op": "property.conserves",
+          "in": [
+            "-100.00",
+            "GBP",
+            "1,1,5",
+            "LargestRemainder"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-conserves-jpy",
+          "op": "property.conserves",
+          "in": [
+            "100",
+            "JPY",
+            "1,1,1",
+            "Sequential"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-sign-symmetric-equal",
+          "op": "property.signSymmetric",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,1",
+            "LargestRemainder"
+          ],
+          "out": "true",
+          "note": "allocate(-m) == -allocate(m), componentwise."
+        },
+        {
+          "id": "prop-sign-symmetric-weighted",
+          "op": "property.signSymmetric",
+          "in": [
+            "100.00",
+            "GBP",
+            "1,1,5",
+            "LargestRemainder"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-sign-symmetric-sequential",
+          "op": "property.signSymmetric",
+          "in": [
+            "0.05",
+            "GBP",
+            "1,1,1",
+            "Sequential"
+          ],
+          "out": "true"
+        },
+        {
+          "id": "prop-sign-symmetric-designated",
+          "op": "property.signSymmetric",
+          "in": [
+            "0.07",
+            "GBP",
+            "1,1,1",
+            "Designated:1"
+          ],
+          "out": "true"
+        }
+      ]
+    }
+  ]
+}

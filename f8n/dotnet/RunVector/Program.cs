@@ -33,7 +33,7 @@ catch (Exception ex)
 // another for a LocalDate. The subject names which type's vectors these are, so one runner
 // per language covers every f8n subject rather than one binary per type.
 var subject = document["subject"]?.GetValue<string>() ?? "";
-if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated" or "f8n.Rounding" or "f8n.Money" or "f8n.Country" or "f8n.CultureCanary" or "f8n.Json"))
+if (subject is not ("f8n.Percentage" or "f8n.LocalDate" or "f8n.EffectiveDated" or "f8n.Rounding" or "f8n.Money" or "f8n.Country" or "f8n.CultureCanary" or "f8n.Json" or "f8n.Allocation"))
 {
     Console.Error.WriteLine($"run-vector: unknown subject \"{subject}\"");
     return 2;
@@ -111,6 +111,10 @@ static bool IsKnownOperation(string subject, string op)
         ("f8n.Json", "taxRateToJson") => true,
         ("f8n.Json", "property.valueRoundTrip") => true,
         ("f8n.Json", "property.wireRoundTrip") => true,
+        ("f8n.Allocation", "allocate") => true,
+        ("f8n.Allocation", "allocateByWeights") => true,
+        ("f8n.Allocation", "property.conserves") => true,
+        ("f8n.Allocation", "property.signSymmetric") => true,
         _ => false,
     };
 }
@@ -189,6 +193,16 @@ static string Execute(string subject, string op, List<string> inputs)
             return Property.ValueRoundTrip(inputs[0], inputs[1]);
         case ("f8n.Json", "property.wireRoundTrip"):
             return Property.WireRoundTrip(inputs[0]);
+        case ("f8n.Allocation", "allocate"):
+            return Parts.Render(Money.FromMajor(inputs[0], Currencies.Lookup(inputs[1]))
+                .Allocate(int.Parse(inputs[2], CultureInfo.InvariantCulture), Parts.Rule(inputs[3])));
+        case ("f8n.Allocation", "allocateByWeights"):
+            return Parts.Render(Money.FromMajor(inputs[0], Currencies.Lookup(inputs[1]))
+                .AllocateByWeights(Parts.Weights(inputs[2]), Parts.Rule(inputs[3])));
+        case ("f8n.Allocation", "property.conserves"):
+            return Property.Conserves(inputs[0], inputs[1], inputs[2], inputs[3]);
+        case ("f8n.Allocation", "property.signSymmetric"):
+            return Property.AllocationSignSymmetric(inputs[0], inputs[1], inputs[2], inputs[3]);
         default:
             throw new InvalidOperationException($"unknown op {op} for {subject}");
     }
@@ -394,6 +408,44 @@ static class Property
         return "true";
     }
 
+    // sum(allocate(m, rule)) == m, exactly. The invariant the whole operation exists for, and
+    // the reason it is not a rounding op: rounding each part independently loses the odd unit.
+    public static string Conserves(string amount, string code, string weights, string rule)
+    {
+        var whole = Money.FromMajor(amount, Currencies.Lookup(code));
+        var parts = whole.AllocateByWeights(Parts.Weights(weights), Parts.Rule(rule));
+
+        var sum = Money.FromMinor(BigInteger.Zero, whole.Currency);
+        foreach (var part in parts)
+        {
+            sum = sum.Add(part);
+        }
+        if (!sum.Equals(whole))
+        {
+            return $"{whole.Amount} split {weights} by {rule} summed to {sum.Amount}";
+        }
+        return "true";
+    }
+
+    // allocate(-m) == -allocate(m), componentwise. True by construction because the sign is
+    // lifted out before the partition and reapplied after — which is why the implementation
+    // works on the magnitude rather than flooring signed shares.
+    public static string AllocationSignSymmetric(string amount, string code, string weights, string rule)
+    {
+        var currency = Currencies.Lookup(code);
+        var positive = Money.FromMajor(amount, currency).AllocateByWeights(Parts.Weights(weights), Parts.Rule(rule));
+        var negated = Money.FromMajor(amount, currency).Negate().AllocateByWeights(Parts.Weights(weights), Parts.Rule(rule));
+
+        for (var i = 0; i < positive.Length; i++)
+        {
+            if (!negated[i].Equals(positive[i].Negate()))
+            {
+                return $"part {i}: {positive[i].Amount} negated is {positive[i].Negate().Amount}, but the negative split gave {negated[i].Amount}";
+            }
+        }
+        return "true";
+    }
+
     public static string OrderIsTotal(List<string> ascending)
     {
         var dates = ascending.Select(LocalDate.Parse).ToArray();
@@ -447,5 +499,37 @@ static class Modes
             "HalfUp" => RoundingMode.HalfUp,
             _ => throw new InvalidOperationException($"unknown rounding mode {name}"),
         };
+    }
+}
+
+static class Parts
+{
+    public static AllocationRule Rule(string spec)
+    {
+        if (spec.StartsWith("Designated:", StringComparison.Ordinal))
+        {
+            return AllocationRule.Designated(int.Parse(spec.Substring("Designated:".Length), CultureInfo.InvariantCulture));
+        }
+        return spec switch
+        {
+            "LargestRemainder" => AllocationRule.LargestRemainder,
+            "Sequential" => AllocationRule.Sequential,
+            _ => throw new InvalidOperationException($"unknown allocation rule {spec}"),
+        };
+    }
+
+    public static List<BigInteger> Weights(string csv)
+    {
+        var weights = new List<BigInteger>();
+        foreach (var part in csv.Split(','))
+        {
+            weights.Add(BigInteger.Parse(part, CultureInfo.InvariantCulture));
+        }
+        return weights;
+    }
+
+    public static string Render(Money[] parts)
+    {
+        return string.Join(" ", parts.Select(part => part.Amount));
     }
 }

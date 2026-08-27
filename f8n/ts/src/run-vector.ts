@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { findCountry } from "./countries.js";
 import type { Currency } from "./currency.js";
+import { AllocationRule } from "./allocation.js";
 import { EffectiveDated } from "./effectivedated.js";
 import { BHD, EUR, GBP, JPY, USD } from "./generated/currency.data.js";
 import { LocalDate } from "./localdate.js";
@@ -57,6 +58,9 @@ const knownOperations = new Map<string, Set<string>>([
   ["f8n.Json", new Set([
     "moneyToJson", "moneyFromJson", "percentageToJson", "localDateToJson", "taxRateToJson",
     "property.valueRoundTrip", "property.wireRoundTrip",
+  ])],
+  ["f8n.Allocation", new Set([
+    "allocate", "allocateByWeights", "property.conserves", "property.signSymmetric",
   ])],
   ["f8n.Rounding", new Set(["divide", "property.signSymmetric"])],
   ["f8n.Money", new Set([
@@ -221,6 +225,62 @@ function formsAgree(alpha2: string, alpha3: string, numeric: string): string {
   return "true";
 }
 
+function parseRule(spec: string): AllocationRule {
+  if (spec.startsWith("Designated:")) {
+    return AllocationRule.designated(Number(spec.slice("Designated:".length)));
+  }
+  switch (spec) {
+    case "LargestRemainder": return AllocationRule.largestRemainder;
+    case "Sequential": return AllocationRule.sequential;
+    default: throw new Error(`unknown allocation rule ${spec}`);
+  }
+}
+
+function parseWeights(csv: string): bigint[] {
+  return csv.split(",").map((part) => BigInt(part));
+}
+
+function renderParts(parts: Money[]): string {
+  return parts.map((part) => part.amount).join(" ");
+}
+
+/**
+ * sum(allocate(m, rule)) == m, exactly. The invariant the whole operation exists for, and the
+ * reason it is not a rounding op: rounding each part independently loses the odd unit.
+ */
+function conserves(amount: string, code: string, weights: string, rule: string): string {
+  const currency = lookupCurrency(code);
+  const whole = Money.fromMajor(amount, currency);
+  const parts = whole.allocateByWeights(parseWeights(weights), parseRule(rule));
+
+  let sum = Money.fromMinor(0n, currency);
+  for (const part of parts) {
+    sum = sum.add(part);
+  }
+  if (!sum.equals(whole)) {
+    return `${whole.amount} split ${weights} by ${rule} summed to ${sum.amount}`;
+  }
+  return "true";
+}
+
+/**
+ * allocate(-m) == -allocate(m), componentwise. True by construction because the sign is lifted
+ * out before the partition and reapplied after — which is why the implementation works on the
+ * magnitude rather than flooring signed shares.
+ */
+function allocationSignSymmetric(amount: string, code: string, weights: string, rule: string): string {
+  const currency = lookupCurrency(code);
+  const positive = Money.fromMajor(amount, currency).allocateByWeights(parseWeights(weights), parseRule(rule));
+  const negated = Money.fromMajor(amount, currency).negate().allocateByWeights(parseWeights(weights), parseRule(rule));
+
+  for (let i = 0; i < positive.length; i++) {
+    if (!negated[i]!.equals(positive[i]!.negate())) {
+      return `part ${i}: ${positive[i]!.amount} negated is ${positive[i]!.negate().amount}, but the negative split gave ${negated[i]!.amount}`;
+    }
+  }
+  return "true";
+}
+
 /** fromJson(toJSON(x)) == x — nothing is lost on the way out. */
 function jsonValueRoundTrip(amount: string, code: string): string {
   const original = Money.fromMajor(amount, lookupCurrency(code));
@@ -343,6 +403,16 @@ function execute(subject: string, op: string, inputs: string[]): string {
       return jsonValueRoundTrip(inputs[0], inputs[1]);
     case "f8n.Json.property.wireRoundTrip":
       return jsonWireRoundTrip(inputs[0]);
+    case "f8n.Allocation.allocate":
+      return renderParts(Money.fromMajor(inputs[0], lookupCurrency(inputs[1]))
+        .allocate(Number(inputs[2]), parseRule(inputs[3])));
+    case "f8n.Allocation.allocateByWeights":
+      return renderParts(Money.fromMajor(inputs[0], lookupCurrency(inputs[1]))
+        .allocateByWeights(parseWeights(inputs[2]), parseRule(inputs[3])));
+    case "f8n.Allocation.property.conserves":
+      return conserves(inputs[0], inputs[1], inputs[2], inputs[3]);
+    case "f8n.Allocation.property.signSymmetric":
+      return allocationSignSymmetric(inputs[0], inputs[1], inputs[2], inputs[3]);
     default:
       throw new Error(`unknown op ${op} for ${subject}`);
   }
