@@ -99,6 +99,10 @@ where zero is reachable.
 an exact match is a distinct part kind or a category with a funny name — and two syntax
 findings, one adopting and one rejecting.
 
+> **Superseded below.** The bare-number recommendation was overturned once the translation
+> pipeline was brought into the argument. Kept for the reasoning, which still holds on its own
+> terms; the resolution is *Word-based keys throughout*, further down.
+
 **Adopt the bare number: `1=`, not `=1=`.** `DESIGN.md` uses ICU's `=0` sigil and pays for it
 with a documented parse wrinkle — *"a key starting with `=` splits on the second `="`*. But
 category names are alphabetic (`zero one two few many other`) and exact values are numeric, so
@@ -144,6 +148,43 @@ present in Latvian and nothing to tell a translator which is arithmetic and whic
 `1` matches n = 1 only; category `one` follows CLDR's rules, so `1.0` with a visible decimal is
 `other` in English. Both are legitimately needed, and the numeric/word split is what makes that
 legible rather than folkloric.
+
+**Resolution — word-based keys throughout, and the pipeline is what makes it safe.**
+
+The objection to `none` was never mechanical: it works exactly as `=0` does. It was that a
+Latvian translator seeing `none` and `zero` together has no cue which is arithmetic and which
+grammatical. **But translators do not invent keys — the pipeline generates them** (`DESIGN.md`:
+the target's categories are generated, en writes `one`/`other`, cy expands to six). A Latvian
+translator receives both as pre-created branches with whatever the translator UI labels them,
+rather than as raw text to reason about. The ambiguity is a tooling problem, and the tooling is
+already in the design.
+
+It also resolves further than "both always appear", because the front-end can compute the
+difference **from CLDR itself** — it knows each locale's `zero` condition:
+
+| locale group | what the translator gets |
+|---|---|
+| `cy`, `ar`, `ars`, `kw`, `cv`, `ksh`, `blo`, `lag` — `zero` **is** `n = 0` | `none` folds into `zero`; one branch, nothing to disambiguate |
+| `lv`, `prg` — `zero` is **not** `n = 0` | both, and both are genuinely needed |
+| everything else — no `zero` category | `none` only |
+
+Each locale's generated data carries the branches that locale actually needs, which is what
+per-locale generation is for. The awkward case reduces to **one living language**, whose
+translator is the person best placed to understand it.
+
+So: **word-based keys, `none` reserved, no numeric keys and no `=` sigil.** The key space is
+`{CLDR categories} ∪ {none}` — a closed set the front-end validates against, which also yields
+the case 13a build errors (`ome=`, `many=`) for free.
+
+**The cost, stated rather than allowed to happen quietly: this drops exact matches other than
+zero.** ICU's `=1` and `=2` have no word available — `one` is taken by the category, and they
+are not the same test (`1.0` is exact-`1` but category-`other`). Likely an acceptable loss:
+"exactly two" special-casing is rare, and a caller can select a different message. But it is a
+decision to take deliberately, not a side effect of preferring words.
+
+**And it does not weaken the Latvian finding — it relocates it.** The collapse that fails is
+still the one that makes `zero` *mean* "none". Keeping them as separate keys, with the
+per-locale folding above, is precisely what the counter-example demands.
 
 **And it reinforces two other cases.** It never displays `count` at all, so case 13's `v`
 operand is undefined for the whole message — the exact branches do not rescue that, since
@@ -287,6 +328,15 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-27: **case 7 resolved the other way — word-based keys throughout, and my objection
+  was answered by the pipeline.** `none` reserved alongside the CLDR categories; no numeric
+  keys, no `=` sigil. The concern was translator legibility, not mechanism, and translators do
+  not invent keys — the pipeline generates the target's set, so `none` and `zero` arrive as
+  labelled branches. Better still, the front-end can fold them **per locale** from CLDR's own
+  rules: where a locale's `zero` *is* `n = 0` (cy, ar, kw, …) `none` folds into it, and only
+  `lv`/`prg` need both. The awkward case reduces to one living language. Cost recorded
+  explicitly: exact matches other than zero are dropped, since `one` is taken by the category
+  and no word remains for `=1`.
 - 2026-08-27: **verified the plural facts from `plurals.xml`, and the counter-example got
   sharper.** Welsh does have six categories, so the claim used throughout stands. Ten locale
   codes carry a `zero` category and they split cleanly: eight define it as `n = 0`, while **`lv`
