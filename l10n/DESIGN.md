@@ -49,53 +49,59 @@ The crux (l10n's analog of f8n's money-arithmetic problem): **identical formatti
 
 **`currency-short` = compact** (`£1.2k`), **not** narrow-symbol. A **display + human-input** pair, **lossy** (`£1,234 → "£1.2k"`, so parse∘format ≠ identity) — **never a wire/persistence format**. Compact is deep: the *magnitude grouping* is locale-specific (en `k/M/B`; Indian **lakh 10⁵ / crore 10⁷**; CJK **万 10⁴ / 億 10⁸**) and CLDR compact forms are **plural-sensitive** → pulls in baked compact data + the plural machinery.
 
-### Compact: input now, display later
-*(Resolved 2026-08-27.)* Compact splits cleanly into two halves with very different costs, and
-only one of them is worth paying for now.
+### Compact — short form, both directions
+*(Resolved 2026-08-27. An earlier reading of this deferred display as "weeks of work"; that
+estimate was priced on a cost that turns out not to apply, and is withdrawn below.)*
 
-**Display is the expensive half, and it partly undoes the plural restriction.** CLDR's compact
-patterns are per locale × per magnitude (10³…10¹⁴) × **per plural category**. In English every
-count yields `"0K"`, which makes it look free — the Western-European view again; elsewhere the
-patterns differ by count and one must be *selected*. That selection uses CLDR's `c`/`e`
-compact-exponent operands, which is exactly the machinery the integer-only plural restriction
-removed, so one path would need the full evaluator back. On top of that: locale-shaped
-magnitude grouping (`k/M/B`, lakh 10⁵ / crore 10⁷, 万 10⁴ / 億 10⁸), significant-digit rounding
-that is easy to diverge on, and a per-locale table large enough to fight tree-shaking.
+**The blocker was count-indexed patterns, and they are in the *long* form only.** CLDR's
+compact patterns are keyed per locale × magnitude × plural category, which suggested display
+would need category selection — and therefore the `c`/`e` compact-exponent operands, reinstating
+exactly the machinery the integer-only plural restriction had removed.
 
-**Input is the cheap half, and it is where compact actually earns its place.** Typing `1.2k`
-into an amount field is a real affordance; seeing `£1.2K` on a summary is a nicety. Input needs
-one thing — a **suffix → multiplier** table per locale — and none of the apparatus above:
+Verified against `cldr-json` for **Welsh**, which is the hard case at six categories:
 
-- Extracted from CLDR's compact patterns (the suffix strings), or hand-curated for the shipped
-  locales. Case-insensitive.
-- Applied **after** the locale's decimal and grouping handling, in the lenient input grammar
-  `l10n` already owns: `1.2k` → `1.2` × 10³.
-- **Exact**, never floating — the multiplier is integer scaling over the decimal string, so
-  `1.2k` is exactly 1200 (see `../f8n/DESIGN.md`, and the `Number()` leak it exists to avoid).
-- The currency's scale still governs: `f8n` converts and rejects what does not fit, so
-  `1.000005k` fails validation for GBP exactly as `1000.005` would. No new rule.
+| form | 1000 | 10000 | 1000000 |
+|---|---|---|---|
+| **short** | `0K` for **every** count | `00K` for every count | `0M` for every count |
+| long | `0 mil` / `0K` **by count** | `00 mil` / `00K` **by count** | `0 miliwn` (one, other) |
 
-**Crucially it is not a hint at all.** It belongs to `parseCurrency(str, locale)`, which is
-already lenient, already spec'd separately, and already outside the cross-language vectors. So
-it touches **nothing** in the message DSL, the codegen shape, or `tree<T>`.
+**Short compact is count-invariant; long compact is not.** Which stands to reason —
+abbreviations do not inflect. So the short form needs **no plural selection, no `c`/`e`
+operands, and does not touch the integer-only restriction.**
 
-The asymmetry — accepts `1.2k`, renders `£1,200` — is normal and already sanctioned here:
-compact is documented as lossy, `parse ∘ format ≠ identity`. Nothing ever promised symmetry.
+**Both directions, and they share almost everything.** Input reverses to display:
 
-**Sketch for display, if it is wanted later.** Two moves that combine, both **restrictions
-rather than approximations** (see `codegen-shape-test.md` → case 3):
+- **The table** — magnitude → suffix, per locale. Needed for input regardless.
+- **Bucket selection** — the largest magnitude ≤ the value. Trivial.
+- **Rounding** — **we own the rule.** Compact display must be locale-appropriate and *identical
+  across our two languages*; it need not be byte-identical to ICU. A specified simple rule
+  replaces CLDR's significant-digit subtleties.
+- **No special-casing for Indian or CJK ladders** — CLDR keys by magnitude (`10000` → 万,
+  `100000` → lakh), so a non-decimal ladder is just different entries in the same table, not a
+  different algorithm.
 
-- **Own the rounding rule.** Compact display need not match ICU byte-for-byte — it must be
-  locale-appropriate and *identical across languages*. A simple specified rule (fixed
-  significant digits) over CLDR's **suffixes and magnitude ladder** skips the fiddliest part
-  while staying correct.
-- **Support only the locales whose compact patterns are count-invariant, and render the full
-  value elsewhere.** That set is **derivable from the data** rather than hand-curated — the
-  extractor can determine it per locale — so it grows on its own as CLDR is re-pulled, and a
-  locale losing support shows up as a diff in the PR. The fallback output is *correct*, merely
-  not compact, which is the restriction/approximation line: nothing is ever wrong, some things
-  are just longer. The real cost is layout — a card sized for `£1.2K` must survive
-  `£1,234,567` — which is a design constraint rather than a correctness one.
+**Input specifics.** Applied *after* the locale's decimal and grouping handling, in the lenient
+input grammar `l10n` already owns; case-insensitive; **exact**, never floating — the multiplier
+is integer scaling over the decimal string, so `1.2k` is exactly 1200. The currency's scale
+still governs, so `1.000005k` fails validation for GBP exactly as `1000.005` would. No new
+rule, and it stays in `parseCurrency` rather than becoming a hint, so it touches nothing in the
+message DSL or the codegen shape.
+
+**Assert the invariance; do not assume it.** The count-invariance above is read from one
+language, however hard a case it is. **The extractor must check it across every locale and fail
+if any short pattern differs across counts.** That converts an inference into a checked
+invariant: a future CLDR change surfaces as a build failure rather than as a wrong suffix in a
+locale nobody tests, and the decision of what to do about it is taken then, with the evidence
+in hand. It also removes the need for a "supported locales" fallback — if the assertion holds,
+every locale works.
+
+**Long compact stays out.** That is where the plural machinery genuinely lives, and "1.2
+miliwn" in prose is a different feature with a different cost. `currency-short` therefore means
+**short** compact, in both directions.
+
+**The asymmetry that was previously accepted is no longer needed.** With display in scope,
+`1.2k` in and `£1.2K` out are the same table read both ways — though compact remains **lossy**
+and never a wire or persistence format, so `parse ∘ format ≠ identity` still holds.
 
 **Format is strict, parse is lenient — separate specs, not inverses.** Output = one canonical form per input (fixtured, exact). Input = a deliberately permissive human-input grammar per locale (case, whitespace, locale decimal separator `1,2k` vs `1.2k`, accepted suffixes). **Real parsing is narrow — only compact money + decimal (`1.2k`).** Everything else is lightweight **input hygiene** (char restriction, trim), not parsing; **date/time is format-only** (pickers hand back an `IsoDate` — no ambiguous free-text date parsing); `plural`/`select`/`enum` don't parse.
 
@@ -113,7 +119,7 @@ One universal construct: **`{arg:hint}`** — `arg` names the parameter, `hint` 
 **Value hints** — `hint = name ('-' param)?`, where `param` is an integer (digit count) *or* a variant keyword:
 | hint | type | param |
 |---|---|---|
-| `currency`, ~~`currency-short`~~, `currency-N` | `Money` | `N` = display dp (e.g. `currency-0` whole-pound). **`currency-short` is deferred** — see *Compact: input now, display later* |
+| `currency`, `currency-short`, `currency-N` | `Money` | `short` = **short** compact (`£1.2K`), both directions — see *Compact*; `N` = display dp (e.g. `currency-0` whole-pound) |
 | `number`, `number-N` | `FixedDecimal`/number | `N` = fraction digits |
 | `percent-N` | `Percentage` | `N` = fraction digits |
 | `date-{variant}` | `f8n.IsoDate`/`DateOnly` | CLDR lengths `short`/`medium`/`long`/`full` |
@@ -260,6 +266,7 @@ A formatter with a fixed locale, a single currency and bounded amounts can be en
 - 2026-07-03: cleared the five small opens (static digits · `=N` exact · parse=compact-money+decimal only · clobber=keep-human+`suggestion` · context=key-path+optional+screenshot); added **Translator UI (l10n × a11y)** section — human-gate surface with a11y-audit screenshots, placeholder chips, key↔control linkage seam.
 - 2026-07-03: **Runtime & integration** section — locale scope (never `CurrentCulture`, `AsyncLocal`/`IDisposable`), m2m propagation, JWT extraction, setup extensions, analysers, enum localization.
 - 2026-07-03: **Translation pipeline** section — en-GB canonical + per-locale mirror, checksum-gated re-translate with `approved:false`, placeholder repair+validate, plural expansion, orphan pruning, deploy gate, compliance flags (no PII to Anthropic; `requiresProfessional`).
+- 2026-08-27 (later): **compact display is in scope after all — the cost estimate was wrong.** The blocker was count-indexed patterns forcing plural selection and the `c`/`e` operands. Verified against `cldr-json`: **Welsh's short compact is identical across all six counts** (`0K`, `00K`, `0M`) while its **long** form does vary (`0 mil` / `0 miliwn`). Abbreviations do not inflect, so short compact needs no category selection and does not disturb the integer-only plural restriction. What remains is shared with input — one magnitude → suffix table, bucket selection, and a rounding rule we own rather than inherit from ICU — with Indian and CJK ladders falling out as ordinary entries because CLDR keys by magnitude. Added the guard that matters: **the extractor must assert count-invariance across every locale and fail if it breaks**, turning an inference drawn from one language into a checked invariant and removing any need for a supported-locale fallback. Long compact stays out; that is where the plural machinery actually lives. Supersedes the earlier entry deferring display, and the "weeks of work" estimate with it.
 - 2026-08-27: **compact split — input in scope, display deferred with a shape rather than a date.** Display is the most expensive item in the hint table and partly undoes the plural restriction: CLDR's compact patterns are count-indexed per locale and magnitude, and selecting among them needs the `c`/`e` operands that integer-only plurals had just removed, plus locale-shaped magnitude ladders, significant-digit rounding and a table large enough to fight tree-shaking. **Input needs none of it** — a suffix → multiplier table applied in the lenient input grammar, exact integer scaling over the decimal string, with the currency's scale still doing the rejecting. It is **not a hint**: it lives in `parseCurrency`, already lenient, already outside the vectors, and touches nothing in the DSL or the codegen shape. `currency-short` is struck from the hint table meanwhile. Deferral given a shape: own the rounding rule rather than matching ICU, and support only locales whose compact patterns are count-invariant — a set **derivable from the data**, not hand-curated — rendering the full value elsewhere. Both are restrictions rather than approximations: the fallback is correct, merely longer.
 - 2026-08-27: **plural drives on an integer; the digit-coupling rule is removed.** `v` — CLDR's count of *displayed* decimals — is what makes "1" `one` and "1.0" `other` in English, and the design had been coupling it to the format hint with a rule that one digit-count must govern both display and selection. Restricting plural drivers to integers makes `v = 0` structurally, so the rule has nothing to guard: no `-N` on a plural driver, a bare `{count}` in the branch, nothing to enforce, and **the interpreter evaluates one operand instead of six**. Recorded with the distinction that makes it safe where the day's other simplifications were not — **a restriction makes some inputs inexpressible; an approximation makes some inputs wrong.** `zero`-means-none is an approximation and renders a false sentence in Latvian; this is a restriction and is exactly correct for everything it accepts. Seam named: fractional plurals return with **long-form unit names in prose**, not with unit formatting generally, since symbols do not pluralise.
 - 2026-08-27: **recorded why the message *syntax* cannot be simplified against a locale set**, under *Assumptions this library can't make*. The existing "any locale" bullet covers the implementation — rules are data, never hardcoded — but not the design surface, which is where the shortcuts actually get taken. Every simplification rejected in `codegen-shape-test.md` today is *correct* across en/fr/de/es/nl/it: those locales have no `zero` category, no exact match beyond zero, and mostly `one`/`other`. They stop being correct one locale further out. An application may bound its locale set and simplify, because that set is a fact it owns; a library cannot, and the distinction is the reason this design refuses shortcuts that would be defensible in a product. Noted too that the cost lands on *design* rather than implementation — evaluating CLDR's rules properly is the same work as evaluating a subset.
