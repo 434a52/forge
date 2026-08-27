@@ -222,6 +222,60 @@ This is the representation model applied to the wire — *distinct nominal types
 
 **Follow-up — `ExchangeRate`.** It is the existing `FixedDecimal` consumer and is documented as sitting at a *consumer-chosen* scale, so it either carries `scale` like the general form or becomes a concrete type at a pinned precision. Decide when it is built; the rule above doesn't force it either way.
 
+### JSON — `toJSON` outbound, `fromJson` inbound, and the two round trips
+The grammar above says what the bytes are. This says how a type reaches them.
+
+**Outbound is `toJSON`, and it returns a value.** `JSON.stringify` looks for a method named
+exactly `toJSON` and splices its **return value** into the output, nested values included.
+Returning a string arrives double-encoded — `{"fee":"{\"amount\":\"12.00\"…}"}` — so the
+method returns the object and stringifying happens once, at the boundary.
+
+Two consequences, both confirmed by running it rather than reasoning about it:
+
+- **A container needs no `toJSON` at all.** `Money` needs one, because its wire form
+  (`amount` + `currency`) is not its field layout (`minor` + `Currency`). A type that merely
+  *holds* a `Money` needs nothing — `stringify` walks its properties and fires each value's
+  own hook. Deleting a container's `toJSON` gives byte-identical output.
+- **The spelling is `toJSON`, and getting it wrong fails loudly here by accident.**
+  `stringify` recognises only the spec name; `toJson` is ignored and the raw fields are
+  emitted instead. In `f8n` that mistake **throws**, because `minor` is a `bigint` and
+  `JSON.stringify` refuses to serialise one at all. The exactness decision, made for
+  precision, also bought a loud failure here. *This is a standing argument against ever
+  narrowing `minor` to a `number`: it would make the same mistake silent, emitting
+  `{"minor":1200,…}` — plausible, wrong, and shaped like output.*
+
+**Inbound is `fromJson`, per type, and it recurses.** There is no inbound equivalent of the
+`toJSON` protocol: `JSON.parse`'s reviver is untyped and positional, so it cannot know that
+`invoice.net` is meant to be a `Money`. But **the type knows its own fields**, so
+`Invoice.fromJson` calls `Money.fromJson` on that position and composes exactly as the
+outbound side does. The asymmetry is not that inbound needs machinery to be possible — it is
+that outbound is free and inbound costs one method per type.
+
+*(Which is also why `c5n` generates `fromJson` and never a `toJson`. For a **schema-defined**
+model type, hand-writing that walker restates the schema by hand in two languages and the
+copies drift; for `f8n`'s hand-written primitives there is no schema to restate, so it is
+hand-written. See `../c5n/DESIGN.md` → *Further consumers*.)*
+
+**There is no default-construct path.** Constructors are private and every way in validates.
+No parameterless constructor, no populate-then-validate — a `Money` with no currency, a
+`LocalDate` at month zero, a `Percentage` over a zero denominator are states that must not be
+reachable, and a deserialiser that builds-then-fills makes all of them reachable mid-populate.
+`System.Text.Json` handles immutable types through a parameterised constructor or a converter,
+and `Money` wants a converter regardless, since its wire form is not its field layout.
+`fromJson` reads, validates, and returns a finished object or throws — the same discipline as
+`FromMajor` and `Parse`, so there is one parsing story rather than two.
+
+#### The two round trips
+Both are **properties**, asserted in both languages, and they say different things:
+
+- **Value round trip** — `fromJson(toJSON(x)) == x`. Nothing is lost on the way out.
+- **Wire round trip** — `toJSON(fromJson(w)) == w`. Nothing *else* is accepted on the way in.
+
+The second is the stronger and the less obvious of the two. It holds only if the wire form is
+**canonical** — one encoding per value — so it is simultaneously a test *of* canonicality.
+Relax the parser to accept `"12.3"` for GBP and it fails immediately, because `toJSON` emits
+`"12.30"`. That is the strict-grammar promise made executable instead of documented.
+
 ## Design agenda (decisions to make)
 - [x] **Money arithmetic conformance** — **Resolved (mechanism): not codegen — hand-maintained classes, golden-vector-verified.** Both langs run the identical integer algorithm on scaled integers (`bigint`/`BigInteger` intermediates, never native `decimal`); the whole claim collapses onto one shared **`divide-with-rounding`** fn, which the vectors target. `c5n` generates the *data* the classes consume (currency scales etc.), not the math. *(Was framed as a codegen question; the c5n "generate data, hand-write algorithm" split answers it. Implementation of the two class sets + the vectors is build work.)*
 - [x] **Data sources & split** — **CLDR for all of it** *(revised 2026-08-26; was a two-source split with `iso-codes` as the identity spine)*. CLDR carries the code lists, the English display names, the relational data (currency minor-units + cash-rounding, territory→default-currency, territory→timezone, likelySubtags) **and** the localised names. The split it replaced routed "codes + official name" to `iso-codes`, which was the one thing forcing an LGPL source into an MIT library for data CLDR already had. What survives of the old rule is the *layer* split, not the source split: **identity and invariant data are `f8n`'s; localised display and formatting are `l10n`'s** — both now reading the same upstream.
@@ -287,6 +341,7 @@ This is the representation model applied to the wire — *distinct nominal types
 
 ## Change log
 - 2026-08-25: **resolved how scale reaches the wire** — it travels only when the type cannot supply it. Concrete types with a built-in precision send the bare value string; the general `FixedDecimal` sends `{"value":…,"scale":…}`, still at exactly `scale` digits. Recorded why concrete types are preferred where a precision is common enough to name: a precision change becomes a visible, versionable change to the *type* rather than a silent variation between payloads that both parse. `ExchangeRate` noted as the case to decide when it is built.
+- 2026-08-27: **pinned the JSON interface before building it, and found two things by running a sketch rather than reasoning.** Outbound is **`toJSON`** — the spec spelling, which `JSON.stringify` calls and whose **return value** it splices, so it returns an object and never a string (a string double-encodes). **A container needs no `toJSON` at all**: only a type whose wire form differs from its field layout does, so `Money` has one and anything merely holding a `Money` does not — deleting a container's hook gives byte-identical output. **And mis-spelling it fails loudly here by accident**: `toJson` is silently ignored, but `minor` is a `bigint` and `JSON.stringify` refuses to serialise one, so the mistake throws instead of emitting `{"minor":1200,…}`. That makes the exactness decision load-bearing for a second reason and is a standing argument against narrowing `minor` to a `number`. Inbound is **`fromJson` per type**, which recurses because a type knows its own field types — the reviver's problem is not inbound's problem. **No default-construct path** anywhere: private constructors, validate-on-the-way-in, no populate-then-validate that would make invalid states reachable. And **two round-trip properties** rather than one: `fromJson(toJSON(x)) == x` says nothing is lost, `toJSON(fromJson(w)) == w` says nothing *else* is accepted — the second holding only because the wire form is canonical, which makes it a test of canonicality too.
 - 2026-08-26: **wrote down that currency and locale are orthogonal, and found a second scale while doing it.** The rule is that a currency is a property of the *amount*, never of the viewer — deriving one from a locale is the silent internationalisation bug where the number formats cleanly and is wrong. `f8n` is immune by construction (a `Money` carries its currency), but the temptation lives one layer up where a formatter already takes a locale, so it is now stated rather than implied. The two genuine links are narrow and both already modelled: **territory → legal tender** as `Country.defaultCurrency`, where *default* means a form pre-fill and not a rule about an existing amount; and **locale → presentation**, which is `l10n`'s and varies by locale and currency together (`$` in en-US, `US$` in en-GB), which is why `Currency.Symbol` is the canonical symbol only. **The finding:** CLDR distinguishes `digits` from `cashDigits`/`cashRounding` — CHF is 2 dp for accounting but cash rounds to 0.05 — and `Currency` models only the accounting scale. Recorded as open, with a lean: add an explicit `Money.RoundToCash` rather than change the amount grammar, so an accounting `CHF 12.34` stays a valid value that simply is not payable in coins. Same shape as `allocate` being its own operation rather than a rounding mode.
 - 2026-08-26: **country lookup by any code form, and the wire keeps only one.** A country is identified by its alpha-3 code and arrives from other systems as an alpha-2 or a numeric one, so both are now indexed — but as an *ingestion* path, not a second wire form: accepting three forms on the wire would give one value three encodings and break the property the strict grammar exists for. `Country.Find` / `findCountry` takes any of the three; the wire takes alpha-3 alone. Leniency is safe there only because the forms have **disjoint shapes** (two letters, three letters, three digits), so nothing is guessed — and it earns its place by centralising a trap: C#'s `ToUpper()` under a Turkish locale turns `"ie"` into `"İE"` and loses Ireland, while JavaScript's `toUpperCase` does not, so the bug is one-sided and invisible in review of the other language. Written invariantly, pinned by a vector, and **re-run under `LC_ALL=tr_TR.UTF-8` in CI** behind a canary that asserts the locale actually applied. Ireland was added to the data specifically to make that case real. *(This reverses the same day's judgment that a hostile-locale run could not fail — true while every path was culture-free by construction, and no longer true once a lookup normalised case.)*
 - 2026-08-26: **`Money` and `divide-with-rounding` built — the conformance surface the whole claim rests on.** Everything else in f8n's arithmetic is exact integer work on big integers and cannot diverge; division is the one place a result is *chosen*, so it is written once in `Rounding.DivideWithRounding` rather than inlined per call site, and it is what the vectors target. `Money` holds an exact count of the currency's minor units, so the scale is always the currency's and never the caller's; `FromMajor` and `FromMinor` name the unit because a bare number cannot say which it is and the factor between them is currency-dependent. `FromMajor` **is** the wire parser — the amount grammar from *Wire format*, character-walked, with the doc's reject table transcribed straight into vectors. Two decisions closed with it (see the decisions log): `HalfUp` rounds **away from zero**, and `AllocationRule` accepts **built-ins only**. Also added the two currencies whose scale is not 2 — **JPY (0 dp) and BHD (3 dp)** — which is what stops "amount" quietly meaning "two decimal places" across the library. 162 vector cases now run in both languages; the `HalfUp` rule was deliberately flipped to toward-+∞ and turned four cases red in C# alone, the property among them reporting *why*: `5/2 gave 3 but -5/2 gave -2`.
