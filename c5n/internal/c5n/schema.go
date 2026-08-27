@@ -17,6 +17,7 @@ type Schema map[string]*Type
 // identity field — it becomes the constant name and the reference target.
 type Type struct {
 	Name     string
+	Source   string // the schema file that declared it, for collision messages
 	Kind     string // "" for a record/external type; KindEnum or KindSeries
 	External bool
 	Key      string
@@ -87,7 +88,7 @@ func LoadSchema(root string, paths []string) (Schema, error) {
 		if err := yaml.Unmarshal(raw, &doc); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
-		if err := parseSchemaDoc(&doc, schema); err != nil {
+		if err := parseSchemaDoc(&doc, schema, p); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
 	}
@@ -96,7 +97,13 @@ func LoadSchema(root string, paths []string) (Schema, error) {
 
 // parseSchemaDoc walks the top-level mapping (TypeName -> declaration). A yaml MappingNode
 // stores entries as a flat slice [key0, val0, key1, val1, …], preserving order.
-func parseSchemaDoc(doc *yaml.Node, out Schema) error {
+//
+// source names the file being read, so a type declared twice can say where the first one was.
+// That matters more than it used to: schema files are a *glob*, and as soon as more than one
+// producer emits into it — a code-first model on one side, l10n on the other — two files
+// declaring one name becomes reachable. Data rows have been checked for this since 1.4; type
+// declarations were not, and last-write-wins silently.
+func parseSchemaDoc(doc *yaml.Node, out Schema, source string) error {
 	if len(doc.Content) == 0 {
 		return nil
 	}
@@ -112,6 +119,14 @@ func parseSchemaDoc(doc *yaml.Node, out Schema) error {
 		if err := checkTypeDecl(t); err != nil {
 			return fmt.Errorf("type %s: %w", t.Name, err)
 		}
+		if prev, clash := out[t.Name]; clash {
+			where := "earlier in this file"
+			if prev.Source != source {
+				where = "in " + prev.Source
+			}
+			return fmt.Errorf("type %s is already declared %s", t.Name, where)
+		}
+		t.Source = source
 		out[t.Name] = t
 	}
 	return nil

@@ -1,6 +1,8 @@
 package c5n
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,7 +18,7 @@ func parseSchema(t *testing.T, src string) (Schema, error) {
 		t.Fatalf("yaml: %v", err)
 	}
 	schema := Schema{}
-	return schema, parseSchemaDoc(&doc, schema)
+	return schema, parseSchemaDoc(&doc, schema, "schema/types.yaml")
 }
 
 // Members are declared, and declaration order is the emitted order — so the schema file is
@@ -32,6 +34,42 @@ func TestEnumMembersKeepDeclarationOrder(t *testing.T) {
 	}
 	if got := strings.Join(typ.Members, ","); got != "VAT,GST,SalesTax" {
 		t.Errorf("members reordered: %s", got)
+	}
+}
+
+// Two producers now emit into the schema glob — a code-first model on one side, l10n on the
+// other — so two files declaring one type name is reachable, and it used to be silent: the
+// second simply replaced the first. Data rows have been checked for this since 1.4.
+func TestDuplicateTypeDeclarationIsRejected(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"a.yaml": "Levy:\n  external: true\n  key: code\n  fields: { code: string }\n",
+		"b.yaml": "Levy:\n  external: true\n  key: id\n  fields: { id: string }\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := LoadSchema(dir, []string{"a.yaml", "b.yaml"})
+	if err == nil {
+		t.Fatal("want an error for the type declared in two files, got nil")
+	}
+	for _, want := range []string{"Levy", "already declared", "a.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error is missing %q:\n%s", want, err)
+		}
+	}
+}
+
+// The same collision within one file, where naming the file back would be unhelpful.
+func TestTypeDeclaredTwiceInOneFileIsRejected(t *testing.T) {
+	_, err := parseSchema(t, "T:\n  external: true\n  fields: { a: string }\nT:\n  external: true\n  fields: { b: string }\n")
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "earlier in this file") {
+		t.Errorf("want the within-file wording, got: %v", err)
 	}
 }
 
