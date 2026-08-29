@@ -13,6 +13,46 @@ Portability was the priority (it runs in *every* consumer's build), and no singl
 - **Roslyn source generator** — best C# DX, but inherently C#-only → needs a *twin* TS generator = two conformance-critical codebases (the divergence risk designed out everywhere else).
 - **TS/Node core** — zero new languages, but forces Node into a pure-.NET CI. Fine for OSS, friction for enterprise; loses the zero-runtime property.
 
+## The emitter takes the pain, not the consumer
+**Each target gets the best experience its language allows, even where that makes the emitter
+harder.** The emitter is written once and read by one person; the generated code is read by
+every consumer, forever. So the work goes in the emitter.
+
+**The test:** *would a competent developer in that language have written this by hand?* If not,
+the emitter is not finished. That is what turns the principle into something that can fail
+rather than an aspiration — and it is the difference between generated code you tolerate and
+generated code you would have written.
+
+It is why the outputs diverge in shape rather than merely in spelling:
+
+| | C# | TS |
+|---|---|---|
+| enum | a real `enum` | a const object + a union of its values — *not* a TS `enum`, which is number-backed and not erasable |
+| co-existence | `partial class` | a `*.data.ts` module the hand-written index imports |
+| lookup | `Country.Find(…)` | `findCountry(…)`, a free function — the generated index imports `Country`, so a static would close a cycle |
+| absence | `TryAsOf(on, out v)` | `asOf(on): T \| undefined` |
+| JSON | a `JsonConverter` | the `toJSON` protocol |
+| l10n layout | one package — a server's assembly loads once | per-locale, dynamically-imported, tree-shakable units — bytes are the cost in a browser |
+
+Each of those was decided on its own; they are all this rule.
+
+**The guardrail: shared where correctness lives, divergent where idiom lives.** The
+value-emitter — the recursive resolver that decides literal / reference / nested-ctor — is *one
+shared function*, because a wrong expression there is wrong data in every target at once. Only
+the rendering around it differs. Divergence is confined to spelling and layout; it never
+reaches semantics.
+
+**The limit: idiom governs the API; the contract governs the wire.** C# emits camelCase JSON
+property names although PascalCase is idiomatic, because the bytes are the contract and
+TypeScript is on the other end. Where a choice is observable outside the process, the contract
+wins and idiom yields.
+
+**And a consequence that couples this to the conformance harness.** Because the outputs are
+idiomatically different, **they cannot be compared structurally** — there is no diffing one
+generated file against the other. Only the vectors can show the two agree. A design that emitted
+one shape in two spellings could have got away with less testing; this one cannot, so the
+harness is load-bearing rather than a nicety. The two decisions stand or fall together.
+
 ## Architecture: portable core + thin wrappers
 - **Core (the Go binary)** — the conformance-critical transform: read source → **normalised model** → emit per-target code. Written once.
 - **Wrappers** — per-ecosystem invocation only, no logic: MSBuild target (.NET), Vite plugin / npm script (TS), optional SHA-pinned GitHub Action. **Same invocation model both sides (a prebuild step)** → unifies C# and TS instead of making C# special (source generators would have made C# the asymmetric case).
@@ -615,6 +655,7 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - ~~**Output paths are derived from the type, not the source.**~~ **Resolved 2026-08-25: output is named for what it *declares* — the emitted unit — and tables are grouped accordingly.** A `table<T>` emits **one unit per type**, however many data files feed it: splitting reference data across files (per region, per source, per reviewer) is an authoring convenience, and the output does not inherit that shape. `EffectiveDated` will emit **one unit per named series**, since the series is what it declares. *Rejected: naming output after the source file* — it would put `partial class TaxRate` in `GbVat.g.cs` and three unrelated series in a file named after none of them, and it requires deriving a legal identifier from an arbitrary path (hyphens, digits, casing, non-ASCII) identically in every target. Naming by declaration keeps the file name matching the type it declares, gives TS the granularity tree-shaking wants, and turns a clash into a **symbol** collision — a real error with a real message — rather than a path clash nobody can act on. The former behaviour lost data silently: two files, one path, second write wins, and `c5n check` then failed straight after a clean build advising a rebuild that could not help.
 
 ## Change log
+- 2026-08-29: **named the rule that a dozen local decisions had been following — the emitter takes the pain, not the consumer.** Each target gets the best experience its language allows, even where that makes the emitter harder, because the emitter is written once and read by one person while the generated code is read by every consumer forever. Made checkable: *would a competent developer in that language have written this by hand?* Applied already, and previously decided one case at a time — a real C# `enum` against a TS const-object-plus-union, `partial class` against a `*.data.ts` module, `Country.Find` against `findCountry`, `TryAsOf` against `asOf(): T | undefined`, a `JsonConverter` against the `toJSON` protocol, and l10n's single C# package against per-locale tree-shakable TS units. Two boundaries recorded with it: the **guardrail** (shared where correctness lives — the value-emitter is one function — divergent only where idiom lives) and the **limit** (idiom governs the API, the contract governs the wire, which is why C# emits camelCase JSON). And the consequence that couples this to the harness: **idiomatically different outputs cannot be compared structurally**, so only the vectors can show the targets agree — a design emitting one shape in two spellings could have tested less; this one cannot.
 - 2026-08-29: **validation specified — three tiers, one mechanism.** Field, cross-field and cross-class rules are all required and all reduce to one placement rule: **a rule belongs to the smallest type that contains everything it reads.** "Cross-class" is "cross-field" reaching one record deeper; neither needs machinery the other lacks. **c5n emits a call, never a rule** — `maxLength: 60` becomes `Rules.MaxLength(value, 60)`, `postcodeMatchesCountry` becomes a call taking the record, and both are hand-written per target and conformance-tested, so a new rule is a new function rather than a change to the engine. A **format belongs in the type**, not in a rule: an invalid postcode cannot exist as a value. **Identity is a rule name plus a path**, and for collections the path segment is the item's **identity, not its index** — a positional path is stable only until something reorders, which is the defect that makes RFC 6902 positional paths unusable for a jointly-edited document, and it means a validated collection needs a client-mintable item id (`key:`, applied to a model collection). Ordering pinned: record rules run once every `required` field is present and are not suppressed by other field failures; failure order is declaration order. Boundary pinned: **no I/O** — a rule that can reach a database cannot run on the client, and "client matches server" would degrade to "the client runs a subset". Conformance dataset is JSON in, **(identity, path) pairs out, never messages**, which makes the wire format a prerequisite. Recorded honestly: fields currently carry only a type, so this is a schema change with a migration, and none of it is started.
 - 2026-08-29: **authoring path settled (YAML leads, code-first stays available), and the two arguments the schema most needs to survive are written down.** *(1) The schema **declares and names; it never expresses*** — no conditionals, no templating, rules appear as the *name* of a hand-written function. That is the constraint rather than an omission: it is the line config formats cross on their way to becoming Helm, and it is also what keeps c5n domain-blind, since a new rule is a new function and never a change to the engine. *(2) Why not protobuf or GraphQL SDL*, which is a harder question than OpenAPI and was unanswered: **protobuf generates data holders you wrap, c5n generates a typed boundary over types you already own** — no way to say "construct this through that factory", no cross-field vocabulary, a binary wire format where f8n chose a readable one, plus field numbers and a parser dependency inherited. *(3) Authoring:* YAML leads **for this repo** because there is no existing domain to preserve and code-first would cost an emitter to buy DX for a model that does not exist; for a brownfield codebase the answer inverts, and the trigger is named. Recorded honestly: the conformance claim is **largely independent** of the choice — types cannot diverge under either scheme, and the behaviour that can is hand-written twice and vector-pinned either way.
 - 2026-08-27: **a type declared twice is an error; it used to be last-write-wins.** `sources.schema` is a glob and `LoadSchema` merges every file into one namespace, so two files declaring one type name silently replaced each other — while *data* rows have had cross-file identity checking since 1.4. Unreachable while one hand-written schema file existed; **reachable the moment two producers emit into the glob**, which is exactly what the l10n walk implies (a code-first model on one side, l10n's own declarations on the other). The error names where the first declaration was, and distinguishes a cross-file collision from a repeat within one file. Same failure shape as the duplicate output path fixed at 2.0b, one layer up.
