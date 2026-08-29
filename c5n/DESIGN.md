@@ -385,6 +385,105 @@ Two more consumers thrown at the design adversarially; both fit with **no new ma
 
 Everything else those consumers need — HTTP, client state, patch/offline queue, UI composition — is **hand-maintained**, correctly. The engine stayed small because the complexity went to the hand-written bucket (the standing guardrail: *c5n emits wiring + data; the algorithm is hand-written*). Three structurally-different consumers (l10n, portfolio, a code-first attribute-annotated model layer) resolving to the same engine and the same composition pattern is the strongest evidence the shape is right. *(How a code-first source reaches c5n was revised — see **Code-first sources emit the spec** below.)*
 
+### Validation — three tiers, one mechanism
+Field, cross-field and cross-class validation are all required. They are **one mechanism** with
+one placement rule, not three features:
+
+> **A rule belongs to the smallest type that contains everything it reads.**
+
+A rule that reads one field is declared on the field. A rule that reads two fields of a record
+is declared on the record. A rule that reads across two *nested* records is declared on the
+type that contains both. "Cross-field" and "cross-class" differ only in how deep the rule
+reaches, and neither needs machinery the other does not.
+
+```yaml
+UkAddress:
+  fields:
+    line1:    { type: string,   required: true, rules: [{ maxLength: 60 }] }
+    line2:    { type: string,                   rules: [{ maxLength: 60 }] }
+    town:     { type: string,   required: true, rules: [{ maxLength: 40 }] }
+    postcode: { type: Postcode, required: true }   # the format lives in the TYPE
+    country:  { type: Country,  required: true }
+  rules:
+    - postcodeMatchesCountry                        # cross-field
+
+Order:
+  fields:
+    customer: { type: Customer,        required: true }
+    delivery: { type: UkAddress,       required: true }
+    lines:    { type: list<OrderLine>, required: true }
+  rules:
+    - deliveryCountryMatchesCustomer                # cross-class: reads two nested records
+    - noDuplicateSkus                               # cross-item: reads a collection
+```
+
+**c5n emits a call; it never emits a rule.** `maxLength: 60` becomes
+`Rules.MaxLength(value, 60)` and `postcodeMatchesCountry` becomes
+`Rules.PostcodeMatchesCountry(record)` — both **hand-written once per target and
+conformance-tested**, exactly as `divide-with-rounding` is. c5n knows nothing about postcodes
+or lengths, so a new rule is a new function rather than a change to the engine. This is the
+*declares-and-names, never expresses* constraint applied: the moment a schema can express
+`if country == "GB" then …` it has become a programming language, and the reason to avoid that
+is the reason it must be avoided here.
+
+**A format belongs in the type, not in a rule.** `Postcode` is a hand-written primitive with a
+strict `Parse`; an invalid postcode is not a validation failure because it cannot exist as a
+value. Same reasoning as `LocalDate` — and the same implementation, a character walk rather
+than a regex, because the UK pattern is precisely where two regex dialects would part company.
+
+#### Identity is a rule plus a path, and the path uses item *identity*, not index
+Every result carries a **stable identity** resolving identically in every target, so a
+locally-evaluated failure and an authoritative one from a server are recognisably one rule and
+can be reconciled rather than doubled. That identity is the rule's name **paired with a path**
+to what it is about — `delivery.postcode`, not `postcode` — because nested records make a bare
+field name ambiguous.
+
+**For a collection, the path segment is the item's identity, never its position.** A positional
+path (`lines[2].sku`) is stable only while nothing reorders; a concurrent insert, a client-side
+sort or an optimistic delete and index 2 names a different item, so a failure reconciles onto
+the wrong row. This is the same defect that makes RFC 6902's positional paths unusable for a
+document two parties edit, and the same fix: address items by identity.
+
+Two consequences:
+- **A collection whose items are validated needs a declared item identity**, and one the client
+  can mint before the server has seen the item — otherwise a new row has no path. This is
+  `key:` (which already names a row's identity in a `table<T>`) applied to a model collection.
+- **Paths must be in the identity from the first version.** Retrofitting them is a breaking
+  change to anything already reconciling on them.
+
+#### Recursion, ordering, and what stops
+- **Nested rules recurse.** Validating an `Order` runs `UkAddress`'s own rules, with the path
+  prefixed — the same walk `fromJson` makes through the schema.
+- **Cross-item rules go on the parent.** `noDuplicateSkus` cannot live on `OrderLine`, because
+  no line can see its siblings.
+- **Record rules run once every `required` field is present**, and are *not* suppressed by
+  other field-rule failures. So a too-long `line1` reports alongside a country mismatch, while a
+  missing `delivery` suppresses only the rules that would dereference it. That yields a full
+  error list without null dereferences.
+- **Failure order is declaration order.** Deterministic, and it is the order a UI would render.
+  Comparing as an unordered set would hide a real divergence between targets.
+
+#### The boundary: no I/O
+*"This postcode exists in the delivery database"* is a lookup, not a validation — asynchronous,
+server-only, and outside the conformance guarantee by design. Everything c5n emits is **pure,
+synchronous and identical in both targets**, which is exactly why it *can* be identical. The
+moment a rule can reach a database the client cannot run it, and "client matches server"
+degrades to "the client runs a subset and hopes".
+
+#### Conformance
+The dataset is a candidate object as JSON in, and the expected set of **(rule identity, path)**
+pairs out — **never messages**, which are localised and would make the vectors locale-dependent
+and the test circular. Both targets deserialise, validate, and report; the driver diffs. That
+makes **the wire format a prerequisite**, since the two must read the input identically before
+they can disagree about anything else — and a deserialisation failure must be reported
+distinctly from a validation failure rather than conflated with it.
+
+#### What this needs that does not exist
+Fields currently carry only a type (`{ code: string }`), so **making them mappings is a schema
+change with a migration behind it**. Also new: record-level `rules:`, validator composition and
+emission, rule identity with paths, and item identity on model collections. None of it is
+small, and none of it is started.
+
 ### Code-first sources emit the spec — c5n reads YAML only (2026-08-22)
 **Revises the earlier "language-native reader" idea (a Roslyn front-end inside c5n).** c5n does **not** parse foreign source languages. Its input is **YAML, and only YAML**. Where a model is authored code-first — attribute-annotated types in a host language — that ecosystem's **own build emits the spec**:
 
@@ -516,6 +615,7 @@ Critical path is **spec + codegen**; conformance tooling is a room. Written to m
 - ~~**Output paths are derived from the type, not the source.**~~ **Resolved 2026-08-25: output is named for what it *declares* — the emitted unit — and tables are grouped accordingly.** A `table<T>` emits **one unit per type**, however many data files feed it: splitting reference data across files (per region, per source, per reviewer) is an authoring convenience, and the output does not inherit that shape. `EffectiveDated` will emit **one unit per named series**, since the series is what it declares. *Rejected: naming output after the source file* — it would put `partial class TaxRate` in `GbVat.g.cs` and three unrelated series in a file named after none of them, and it requires deriving a legal identifier from an arbitrary path (hyphens, digits, casing, non-ASCII) identically in every target. Naming by declaration keeps the file name matching the type it declares, gives TS the granularity tree-shaking wants, and turns a clash into a **symbol** collision — a real error with a real message — rather than a path clash nobody can act on. The former behaviour lost data silently: two files, one path, second write wins, and `c5n check` then failed straight after a clean build advising a rebuild that could not help.
 
 ## Change log
+- 2026-08-29: **validation specified — three tiers, one mechanism.** Field, cross-field and cross-class rules are all required and all reduce to one placement rule: **a rule belongs to the smallest type that contains everything it reads.** "Cross-class" is "cross-field" reaching one record deeper; neither needs machinery the other lacks. **c5n emits a call, never a rule** — `maxLength: 60` becomes `Rules.MaxLength(value, 60)`, `postcodeMatchesCountry` becomes a call taking the record, and both are hand-written per target and conformance-tested, so a new rule is a new function rather than a change to the engine. A **format belongs in the type**, not in a rule: an invalid postcode cannot exist as a value. **Identity is a rule name plus a path**, and for collections the path segment is the item's **identity, not its index** — a positional path is stable only until something reorders, which is the defect that makes RFC 6902 positional paths unusable for a jointly-edited document, and it means a validated collection needs a client-mintable item id (`key:`, applied to a model collection). Ordering pinned: record rules run once every `required` field is present and are not suppressed by other field failures; failure order is declaration order. Boundary pinned: **no I/O** — a rule that can reach a database cannot run on the client, and "client matches server" would degrade to "the client runs a subset". Conformance dataset is JSON in, **(identity, path) pairs out, never messages**, which makes the wire format a prerequisite. Recorded honestly: fields currently carry only a type, so this is a schema change with a migration, and none of it is started.
 - 2026-08-29: **authoring path settled (YAML leads, code-first stays available), and the two arguments the schema most needs to survive are written down.** *(1) The schema **declares and names; it never expresses*** — no conditionals, no templating, rules appear as the *name* of a hand-written function. That is the constraint rather than an omission: it is the line config formats cross on their way to becoming Helm, and it is also what keeps c5n domain-blind, since a new rule is a new function and never a change to the engine. *(2) Why not protobuf or GraphQL SDL*, which is a harder question than OpenAPI and was unanswered: **protobuf generates data holders you wrap, c5n generates a typed boundary over types you already own** — no way to say "construct this through that factory", no cross-field vocabulary, a binary wire format where f8n chose a readable one, plus field numbers and a parser dependency inherited. *(3) Authoring:* YAML leads **for this repo** because there is no existing domain to preserve and code-first would cost an emitter to buy DX for a model that does not exist; for a brownfield codebase the answer inverts, and the trigger is named. Recorded honestly: the conformance claim is **largely independent** of the choice — types cannot diverge under either scheme, and the behaviour that can is hand-written twice and vector-pinned either way.
 - 2026-08-27: **a type declared twice is an error; it used to be last-write-wins.** `sources.schema` is a glob and `LoadSchema` merges every file into one namespace, so two files declaring one type name silently replaced each other — while *data* rows have had cross-file identity checking since 1.4. Unreachable while one hand-written schema file existed; **reachable the moment two producers emit into the glob**, which is exactly what the l10n walk implies (a code-first model on one side, l10n's own declarations on the other). The error names where the first declaration was, and distinguishes a cross-file collision from a repeat within one file. Same failure shape as the duplicate output path fixed at 2.0b, one layer up.
 - 2026-08-27: **pinned `tree<T>` and typed-shim emit behind the l10n pressure test** (`../l10n/codegen-shape-test.md`). Both exist in this design only because the 2026-07-04 stress test proposed them, and that stress test's own conclusion was that the l10n code-shape is unvalidated. Growing the engine to serve a shape nobody has walked against a real message set is speculative building of exactly the sort this doc refuses elsewhere. The walk's deliverable is the *specification* of both capabilities; its first finding is already a requirement — the candidate describes one tree where there are two, locale-neutral shims over per-locale data.
