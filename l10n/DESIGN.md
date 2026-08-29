@@ -193,7 +193,7 @@ invite:
 `c5n` emits one shim, `invite(gender, host, guest)`, which switches and calls the right message. Consequences: **the parts model stays a flat list** so the interpreter loops rather than recurses; **`select`'s argument is a generated enum**, so an invalid value is a *compile error* rather than a silent fall-through to `other`; and translators receive **whole sentences** rather than the eighteen fragments a gender × Welsh-plural nest would produce — fragment assembly being the classic route to poor translation. Limits: no `plural` inside `plural`, and a `select` with many keys is data rather than a message selector. See `codegen-shape-test.md` → case 5.
 
 - Plural drives on a **named arg** (`count:plural`, *not* an arg-less `{plural|…}`), so it knows which number selects.
-- Categories are the **target locale's** set (en author writes `one`/`other`; cy expands to all six) — the translation pipeline generates the target's categories; runtime falls back to `other`.
+- Categories are the **target locale's** set (en author writes `one`/`other`; cy expands to all six) — the translation pipeline generates the target's categories. **A missing category throws rather than falling back to `other`** *(corrected 2026-08-29, case 4)*: the build already checks that a locale's data carries exactly its own category set, so a silent fallback is an unreachable branch — and unreachable code inside the conformance surface is untestable by construction, which is where divergence hides. The **rule table is generated per locale** from one CLDR extraction (hand-writing ~200 locales' rules twice would drift); the **evaluator is hand-written per language** and is part of the conformance surface. Integer-only drivers let the extractor **pre-reduce** the rules, so Latvian's `v = 2 and f % 100 = 11..19` clause is dropped at build time rather than evaluated-and-failed at runtime.
 - **Plural drives on an integer** *(resolved 2026-08-27; replaces a digit-coupling rule)*. CLDR's plural rules take operands `n, i, v, w, f, t`, where **`v` is the count of decimals *displayed*** — which is why "1" is `one` and "1.0" is `other` in English, the same number pluralising differently by how it is shown. The design previously coupled that to the format hint (`number-0` → v0), with a rule that a single digit-count must govern both a value's display and its selection. **That rule is gone, and so is the reason for it:** a plural argument is an integer, so `v = w = f = t = 0` and `n = i` structurally. Consequences — no `-N` hint is needed on a plural driver, a branch interpolates the bare `{count}`, nothing has to be enforced, and **the interpreter evaluates one operand rather than six** (Latvian's `v = 2 and f % 100 = 11..19` clause is structurally dead). *This is a **restriction**, not an approximation: for every input it accepts, the CLDR rules reduce exactly. A class of message simply cannot be written.* **The seam that reopens it** is fractional pluralisation, which arrives only with **long-form unit names in prose** ("2.5 kilowatt-hours"); unit *symbols* do not pluralise, so unit formatting alone does not reopen it. See `codegen-shape-test.md` → cases 3 and 13.
 
 **Escaping — the grammar does 95%, a 3-char escape set does the rest.**
@@ -202,17 +202,27 @@ invite:
 - **Minimal escapes:** `\{` `\}` (literal braces, since `{` always opens an interpolation) and `\|` (literal pipe *inside a selector value*; a pipe inside nested `{…}` is already unambiguous). Plus `\\`. **Backslash, not ICU `'…'` quoting** — apostrophes are everywhere (`l'eau`) and ICU's quote rules are notoriously confusing.
 - Riders: **fixtures must cover escapes** (literal `{`/`|`/`\` per locale — the archetypal demo-passes-prod-breaks bug); the **translation pipeline protects structural tokens** — extract placeholders → translate prose only → reinsert (never let the LLM "translate" `{count:number}` or the escapes).
 
-**Digits are static** (authoring-time, e.g. `percent-2`) — not a runtime arg; genuine variable precision is served by the value's own `FixedDecimal` scale ("format to the value's scale"), keeping the hint a fixed type/format. **Exact-value matches supported** — `=0`/`=1` checked *before* the category rules (`=0=No items` — distinct from the `zero` *category*, which is grammatical/Welsh-Arabic); parse wrinkle: a key starting with `=` splits on the *second* `=`. *(Also resolved: `date-*` → `f8n.IsoDate`/`IsoTime`/`IsoDateTime`; `currency-short` = **compact** — see Format/parse.)*
+**Digits are static** (authoring-time, e.g. `percent-2`) — not a runtime arg; genuine variable precision is served by the value's own `FixedDecimal` scale ("format to the value's scale"), keeping the hint a fixed type/format. **Exact-value matches supported, as bare numeric keys** — `0=No items`, `1=one item`, checked *before* the category rules *(settled 2026-08-27; ICU's `=0=` sigil and the second-`=` parse wrinkle are both gone)*. Categories are words and exact values are numbers, so a number can never collide with a category name and one rule — split on the first `=` — covers every key. `0=` is distinct from the `zero` **category**, which is grammatical and, in Latvian, matches 0, 10 and 11–19. *(Also resolved: `date-*` → `f8n.IsoDate`/`IsoTime`/`IsoDateTime`; `currency-short` = **compact** — see Format/parse.)*
 
-## Codegen structure (candidate — 2026-07-04)
-How `c5n` emits l10n, from the c5n l10n stress-test. **Candidate** — a codegen-native redesign, deliberately *not* the conventional translation-client / string-resolver shape, which retrofits codegen onto a hand-first design; this is designed *for* codegen from day one. **Not yet validated against a real message set — pressure-test before settling: `codegen-shape-test.md`.**
+## Codegen structure (candidate — 2026-07-04; pressure test complete 2026-08-29)
+How `c5n` emits l10n, from the c5n l10n stress-test. A codegen-native redesign, deliberately *not* the conventional translation-client / string-resolver shape, which retrofits codegen onto a hand-first design; this is designed *for* codegen from day one.
+
+**The pressure test has run** — all fifteen cases in `codegen-shape-test.md` are resolved, none forced new machinery mid-walk, and three *removed* something (nesting, the digit-coupling rule, the unreachable `other` fallback). **`candidate` stays on until two named gaps close**, both recorded there: six of the cases ran on invented stand-ins rather than a real corpus, and the artefacts the test asked for — typed signature, message data and runtime call, in both languages and two locales — were written out only where they were doing work. Neither gap is a known problem; they are the parts of the check that were not actually performed.
 
 Three parts:
 - **Generated — a `tree<T>` of typed shims.** *(And the shims now carry `select` dispatch — see* Selectors *above; the parts model below is consequently a flat list rather than a tree.)* The namespace tree (dir/file = namespace) emits as nested scopes (C# nested static classes, TS nested modules); each message leaf is a **thin typed façade** whose signature comes from the hints (`{limit:currency}` → `limit: Money`), delegating to the runtime. The typed signature is the one irreducibly-generated thing — the "typed" north star.
 - **Generated — the message as *data*.** The parsed `{arg:hint}` message (params + a recursive list of parts: `literal | format-call | selector`) emitted as a plain data value. `c5n` never parses the DSL; an **l10n front-end lowers it to this structured model** upstream.
-- **Hand-written — one `render` interpreter per language.** Walks the parts, calls the formatters, evaluates plural category, recurses into selector branches — plus the formatters + pattern-applier + `PluralCategory`. **This is the entire conformance surface** (exactly "conformance by verification"): language-neutral message data + two hand-written interpreters, fixture-tested.
+- **Hand-written — one `render` interpreter per language.** Loops the flat parts list, calls the formatters, evaluates plural category from the generated rule table — plus the formatters + pattern-applier + `PluralCategory`. *(No recursion: `select` hoisted into the shim, so the parts model is flat — see* Selectors *above.)* **This is the entire conformance surface** (exactly "conformance by verification"): language-neutral message data + two hand-written interpreters, fixture-tested.
 
 **Why (perf + conformance):** the DSL is parsed to data **at build time**, so runtime never re-parses (a runtime resolver would, per call); a **single** interpreter per language keeps the conformance surface tiny — vs inlining thousands of message bodies, the cross-language-identical burden the north star can least afford. Near-inlined speed, minimal surface, simple codegen. See `../c5n/DESIGN.md` → **Stress-tested against l10n**.
+
+**The conformance boundary is `render(data, args, locale)`** *(resolved 2026-08-29, pressure-test case 2)*. Locale is an **explicit parameter** of the interpreter, and **nothing below that boundary reads ambient culture** — every `f8n` and CLDR call inside `render` takes it. The harness can only drive an input and compare an output, so an ambient locale is a *hidden input*, and worse, `CurrentCulture` and JS's default `Intl` locale resolve by different rules — the two targets would not even be taking the same arguments. This is the `LocalDate.ToString` incident (culture-sensitive where `Percentage` was invariant, caught only by a vector) generalised into an invariant, and the same discipline as f8n's *injected clock, never `DateTime.Now`*.
+
+*Above* the boundary it is free: shims are generated, so they are verified by regenerate-and-diff rather than by vectors, and each language obtains its locale idiomatically — a bound catalogue in C#, a bound `t` from a composable in TS. **Locale scope** in *Runtime & integration* is that layer: controlled ambient is the ergonomic default for callers, and it resolves a locale before calling down. So the **emitter takes the pain** rule (`../c5n/DESIGN.md`) applies above the boundary and stops dead at it — its second limit, after the wire format.
+
+**Per-locale data is more than messages** *(case 9)*. The per-locale tree carries the message data, the **pre-reduced plural rule table**, and the **CLDR date/time patterns and number symbols** — dynamically imported as one unit, which is what makes registration and dynamic import one mechanism rather than three. The interpreter **applies the patterns itself and never delegates to the platform**: `Intl.DateTimeFormat` and .NET's `CultureInfo` are two ICU copies at two versions, and they disagree in ways that move between releases (ICU 72's narrow no-break space before AM/PM broke test suites across the JS ecosystem). Delegating would turn a runtime upgrade into a red harness — the worst possible signal, because it teaches you to distrust the test.
+
+**Structural facts are declared, never recovered by lookup** *(cases 6 and 14)*. A sibling group is marked dispatchable rather than inferred signature-compatible; a leaf's kind (message or constant) is declared rather than inferred from arity; an optional parameter is marked in the message rather than matched against the constants file. Each inference has the same failure: an unrelated edit silently changes an API, where a declaration fails the build by name.
 
 **Open (C#):** nested static classes give typed access, but shipping only *used* locales is the separate satellite-assembly / trimming question (Tree-shaking agenda item).
 
@@ -234,6 +244,17 @@ fallback chain already resolved at lowering. One resolver serves both leaf kinds
 constants fall back exactly as messages do. The type then buys an exhaustiveness check for
 nothing: a constant missing from *every* locale is a compile error, while one missing from a
 single locale simply falls back to the source.
+
+**Fallback resolves at lowering for messages too** *(2026-08-29, case 11)*. A locale missing a
+message carries the canonical one in its own tree, so **every tree is complete**, lookup is a
+single hit, and **the interpreter has no fallback path** — no multi-tree chain to drive, and
+nothing invisible until it renders. A build failure would be the wrong answer for the same reason
+generation is not gated: it stalls development behind translation. **Each entry carries its
+source locale**, which the category check needs (a fallen-back message has the *source* locale's
+categories), which `lang=` on the rendered fragment needs independently — WCAG 3.1.2 *Language of
+Parts*, or a screen reader pronounces English prose with Welsh phonetics — and which surfaces
+untranslated strings in dev mode. The cost is duplication bounded by *translation debt* rather
+than corpus size, shrinking to zero as translation completes.
 
 ## Registration — one declaration, three jobs
 An app **registers on init the namespaces it will use**, and a runtime check permits only
@@ -330,7 +351,7 @@ oversight rather than a decision. See `codegen-shape-test.md` → case 7.
 - [x] **Locale data source** → CLDR, derived-and-baked; tree-shaken per locale.
 - [x] **Codegen** → `c5n` (feed it templates + schema).
 - [x] **Interpolation / hint model** → `{arg:hint}` universal; hint = type; value + selector (`plural`/`select`) hints; escaping settled. Full detail in **Interpolation & hints** above. *(All opens resolved: static digits, `=N` exact-value, `date-*`/`currency-short` types, parse-scope.)*
-- [ ] **Typed access** — namespaces → object tree (tree-shakable in TS); compile-time param checking. *(Candidate structure → **Codegen structure**; analyser + enum localization in **Runtime & integration**.)*
+- [ ] **Typed access** — namespaces → object tree (tree-shakable in TS); compile-time param checking. *(Structure settled — the pressure test walked all fifteen cases, `codegen-shape-test.md`; analyser + enum localization in **Runtime & integration**. Remaining: the `c5n` `tree<T>` declaration itself.)*
 - [x] **Conformance harness** → shared fixtures file per target, identical-output-per-input (the `c5n` hub); coverage = the guarantee.
 - [ ] **Tree-shaking structure** — per-message / per-locale side-effect-free ESM (TS); the **C# equivalent** (satellite assemblies? how to ship only needed locales in .NET).
 - [x] **Translation pipeline** → en-GB canonical (dir/file = namespace, sorted key=value JSON); per-locale mirror with `{value, sourceChecksum, translated, approved}`; checksum-diff → Anthropic re-translate + `approved:false` + placeholder repair-and-validate; human approve; CD gate blocks unapproved. Full detail in **Translation pipeline** above. *(Clobber → keep-human+`suggestion`; context → key-path + optional field + screenshot via translator UI.)*
@@ -361,6 +382,31 @@ A formatter with a fixed locale, a single currency and bounded amounts can be en
 - **2026-07-03 · Escaping** → grammar/context handles prose (specials only structural inside `{}`); first-`:`/first-`=` split, rest literal; minimal escapes `\{ \} \|` (+`\\`), **backslash not ICU `'…'` quoting**. Fixtures must cover escapes; translation pipeline protects structural tokens (translate prose only).
 
 ## Change log
+- 2026-08-29: **the codegen pressure test finished — all fifteen cases resolved, and case 2
+  placed the conformance boundary.** `render(data, args, locale)`: locale is an **explicit
+  parameter**, nothing below it reads ambient culture, and above it each language obtains the
+  locale idiomatically. The harness can only drive an input and compare an output, so an ambient
+  locale is a hidden input — and `CurrentCulture` and JS's default `Intl` locale resolve by
+  different rules, so the two targets would not be taking the same arguments. That generalises
+  the `LocalDate.ToString` incident into an invariant, and gives **emitter takes the pain** its
+  second limit after the wire format. Consequences landed here: the interpreter **applies CLDR
+  patterns itself and never delegates** to `Intl`/`CultureInfo`, which are two ICU copies at two
+  versions that disagree in ways that move between releases — delegating turns a runtime upgrade
+  into a red harness; the **per-locale tree carries patterns and the pre-reduced plural rule
+  table** alongside messages, dynamically imported as one unit; a **missing plural category
+  throws** rather than falling back to `other`, since the build check makes that branch
+  unreachable and unreachable code in the conformance surface is untestable by construction;
+  **message fallback resolves at lowering** like constants', so every tree is complete and the
+  interpreter has no fallback path, with **each entry tagged by source locale** — needed by the
+  category check, by `lang=` (WCAG 3.1.2), and by dev-mode surfacing. And a rule stated from two
+  instances: **structural facts are declared, never recovered by lookup** — dispatch, leaf kind,
+  and parameter optionality all fail the build by name rather than silently changing an API.
+  Two stale lines corrected: the exact-match syntax still documented ICU's `=0=` and the
+  second-`=` wrinkle after case 7 replaced them with bare numeric keys, and the interpreter was
+  still described as recursing into selector branches after case 5 flattened the parts model.
+  `candidate` **stays on**: six cases ran on stand-ins rather than a real corpus, and the
+  artefact discipline the test set for itself was applied selectively. See
+  `codegen-shape-test.md` → *Where the walk landed*.
 - 2026-08-25: **the math/presentation seam made explicit.** `toDisplayAmount` is `f8n`'s conversion, not `l10n`'s — `l10n` formats the digits it is handed. Parse splits the same way: `l10n` owns the locale grammar and lowers input to a plain decimal string; `f8n` converts it, enforces the currency scale, and returns a validation failure for a value that cannot be represented, which `l10n` renders in the user's locale rather than deciding or rounding away.
 - 2026-08-22: **format/parse sharpened for the `MoneyInput` consumer.** Recorded that **display formatting and edit formatting are distinct functions** (decorated display vs caret-safe grouping while typing) and that both are l10n's to expose, rather than leaving a component to reconstruct one from the other. Added a **bounded scope addition — locale-aware plain-decimal money parsing** (`1,234.57` vs `1.234,57`: strip grouping, map the decimal separator, validate fraction digits against the *currency's* dp, produce exact minor units): more than the "input hygiene" the narrow-parsing line allowed, far less than a general number grammar; the no-free-text-dates and no-general-number-grammar boundaries are unchanged. Renamed the example consumer `<CurrencyInput>` → **`<MoneyInput>`** (the bound type is `Money`; `Currency` is a separate primitive and the old name reads as a currency picker).
 - 2026-07-04: added **Codegen structure (candidate)** — from the c5n l10n stress-test. Generated = a `tree<T>` of thin typed shims + the parsed message as *data*; hand-written = one `render` interpreter per language (+ formatters/pattern-applier/`PluralCategory`) = the whole conformance surface. Codegen-native redesign, deliberately unlike the conventional translation-client/string-resolver structure (codegen-first vs codegen-retrofitted); perf (build-time parse, no runtime re-parse) + minimal conformance surface (one interpreter, not inlined bodies). **Held as candidate — pressure-test against a real message set before settling.** Full engine side → `../c5n/DESIGN.md`.

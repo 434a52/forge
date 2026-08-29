@@ -47,22 +47,84 @@ Carry this through every case below: **write the artefacts for two locales, not 
 
 ---
 
+## The lens the last seven cases were walked with
+
+**The harness can only drive an input and compare an output.** Everything else is invisible to
+it. So:
+
+> **Anything not reachable from an input or visible in an output is untestable — and untestable
+> code inside the conformance surface is where two languages drift apart in silence.**
+
+That is not a testing preference; for this design it is a *design* constraint, because
+conformance is the entire claim. Applied, it decides cases 2, 8 and 9 outright and sharpens 4
+and 11: ambient locale is out (2), the escape bug lives above the boundary vectors can reach
+(8), platform date formatting is out (9), an unreachable fallback branch becomes a throw (4),
+and a runtime fallback chain loses to one resolved at lowering (11).
+
 ## Cases
 
 Ordered roughly by how much they can break. `⚠` marks the ones I expect to be load-bearing.
 
-### 1. No arguments
+### 1. No arguments — **RESOLVED**
 **Stand-in:** `Save`
 **Real:** *(to add)*
-**Forces:** the baseline. What does a zero-arg shim cost, and is the data a bare literal or
-still a parts list? If a zero-arg message pays for a parts list and an interpreter call, most
-of a real corpus pays it.
 
-### 2. One value hint
+**A sole-literal message lowers to a bare string, not a one-element parts list.** One branch in
+the interpreter — *if the data is a string, return it* — in exchange for most of a real corpus
+skipping the loop entirely. It is a difference in data *shape*, so both languages must agree on
+it, so a vector covers it.
+
+**And the trap the case was hiding: arity is not the discriminator between a message and a
+constant.** A zero-arg message and a constant are both "a string with no arguments", so arity is
+the tempting answer and it is the wrong one:
+
+> **A message is translated prose. A constant is an authored per-locale value.**
+
+Different pipelines, different review, different failure modes — case 12's approval gate applies
+to one and not the other. So the kind is **declared**, never inferred from shape.
+
+Keeping zero-arg messages as **functions** while constants emit as **values** (case 14) then
+keeps the two leaf kinds distinct at the call site: `Messages.Save()` against
+`Constants.SupportPhone`. *Held rather than proved:* .NET's own resx emits string resources as
+**properties**, so a C# developer might well have written a property here and the
+emitter-takes-the-pain test is genuinely arguable. The tiebreaker is leaf-kind legibility, not
+idiom — worth revisiting if the call sites read badly.
+
+### 2. ⚠ One value hint — **RESOLVED: it locates the conformance boundary**
 **Stand-in:** `{limit:currency} per institution`
 **Real:** *(to add)*
-**Forces:** the basic typed signature — `limit: Money`. Who applies the locale: does the shim
-capture it, take it per call, or read ambient state?
+
+The signature is uncontroversial — `PerInstitution(Money limit)` / `perInstitution(limit: Money)`.
+The locale question is the case, and it turns out to place the conformance boundary for the whole
+design.
+
+**Ambient locale is disqualified, and not on taste.** If the interpreter reads
+`CultureInfo.CurrentCulture` or JS's default `Intl` locale, a vector must set a hidden input out
+of band — and the two mechanisms resolve differently, so the harness would be comparing two
+functions that do not take the same arguments. **Already paid for once:** `LocalDate.ToString`
+was `CurrentCulture`-sensitive where `Percentage` was invariant, and only a vector found it.
+
+The tension that looks fatal — locale must be explicit, yet `Save(locale)` on every shim is grim
+ergonomics — dissolves once the boundary is placed precisely:
+
+> **The conformance boundary is `render(data, args, locale) → string`.** Below it, ambient
+> locale is **forbidden**. Above it, how a shim obtains the locale is an ergonomics choice, free
+> to differ per language.
+
+Shims are generated, so they are verified by regenerate-and-diff, not by vectors. C# can
+therefore hand back a locale-bound catalogue while TS hands back a bound `t` from a composable —
+idiomatic divergence, no conformance hole. **The emitter-takes-the-pain rule applies above the
+boundary and stops dead at it**, which is the first limit that rule has been given by something
+other than the wire format.
+
+**This sharpens, rather than contradicts, `DESIGN.md`'s *Locale scope — never `CurrentCulture`*.**
+That item's "controlled ambient" scope — an `AsyncLocal`-flowed `IDisposable` with an explicit
+override — is correct, and it lives **above** the boundary: it resolves a locale and hands it
+down. What must not happen is a formatter *below* the boundary reading it.
+
+**The invariant, stated:** *nothing below the boundary reads ambient culture.* Every `f8n` and
+CLDR call inside `render` takes locale explicitly. That is the `ToString` incident generalised
+into a rule — the same shape as f8n's *injected clock, never `DateTime.Now`*.
 
 ### 3. ⚠ Plural with coupled digits — **RESOLVED: the coupling is removed**
 **Was:** `{count:plural|one={count:number-0} item|other={count:number-0} items}`
@@ -93,12 +155,32 @@ symbols do not pluralise ("12.5 kWh" is invariant). So ampersand's unit needs do
 this. *Unverified:* that short/narrow unit widths are count-invariant in CLDR — `en.xml`
 truncated before the units section and the chart URL 404'd.
 
-### 4. ⚠ A target locale with more categories
+### 4. ⚠ A target locale with more categories — **RESOLVED**
 **Stand-in:** the case above, in `cy` — six categories where `en` has two.
 **Real:** *(to add — and which locales are actually in scope, with their category sets)*
-**Forces:** the two-tree split above, concretely. Signature must be identical across locales;
-data must not be. Also: the runtime falls back to `other` — where does the *category set* come
-from, generated per locale or from CLDR plural rules at runtime?
+
+Category selection cannot happen at build time, because the count is not known then. So rule
+evaluation is necessarily runtime, and the only real question is which half is data and which is
+code. **The two halves go opposite ways:**
+
+- **The rule table is generated per locale**, from one CLDR extraction. Hand-written per language
+  it would be two copies of ~200 locales' rules, and they would drift. This is `c5n`'s own value
+  proposition applied to l10n itself.
+- **The evaluator is hand-written per language**, inside the conformance surface, driven by
+  vectors that walk counts per locale — with **Latvian named explicitly**, per the fixture
+  consequence recorded on 2026-08-27.
+
+**Case 3 pays a second dividend here.** With integer-only drivers the rules can be **pre-reduced
+at extraction time**: Latvian's `v = 2 and f % 100 = 11..19` clause is dropped by the extractor
+rather than evaluated-and-failed at runtime. Smaller table, smaller evaluator, and the
+restriction is doing work in a place it was not designed for.
+
+**And a correction to `DESIGN.md`:** it says the runtime falls back to `other` where a category
+is missing. Under the two-trees build check — a locale's data carries exactly its own category
+set — that path is **unreachable**, and unreachable code inside the conformance surface is
+untestable by construction, which is precisely where divergence hides. It should **throw**. The
+vector format already expresses that: `"error": true` appears in six of the eight `f8n` vector
+files.
 
 ### 5. ⚠ Nested selectors — **RESOLVED: nesting is removed, and the shape gets simpler**
 **Stand-in:** `{who:select|self=You have {n:plural|one=an account|other={n} accounts}|other={name} has {n:plural|…}}`
@@ -160,11 +242,31 @@ outer selection, and **the message data never nests.**
   is almost certainly data-driven and should not be a message selector at all. **Worth a stated
   limit** rather than left to judgement.
 
-### 6. Branches using different arguments
+### 6. Branches using different arguments — **RESOLVED, after the case changed shape**
 **Stand-in:** `{plan:select|free=Upgrade for {price:currency}|paid=Renews {renews:date-medium}}`
 **Real:** *(to add)*
-**Forces:** the signature is the **union** of all branches' arguments, so some are unused on
-any given call. Are they optional, or required-and-ignored? Nullable in C#?
+
+**Case 5 dissolved the stand-in as written** — `select` hoisted out of the message and into the
+shim — so this is now two sibling messages with different signatures, and the live question is
+whether `c5n` emits a dispatcher over them at all.
+
+**A union dispatcher is a trap.** `Plan(PlanKind plan, Money price, IsoDate renews)` either
+forces the caller to invent a `renews` on the free branch, or makes it nullable — and a null on
+the branch that needs it is a **runtime** failure, in the one case that exists to test the typed
+claim.
+
+The tempting rule is *emit dispatch when the branches are signature-compatible*. **It is the same
+inference failure as case 14's resolve-by-lookup:** add an argument to one branch and the
+dispatcher silently disappears from the API, breaking every call site with an error that names
+the wrong thing.
+
+**So dispatch is declared, not inferred.** The author marks a sibling group as dispatchable;
+adding a divergent argument then fails the build with *branches are no longer
+signature-compatible*, which names the actual problem. Second time this lesson has been paid for
+in this doc, which is fair evidence it generalises:
+
+> **Structural facts are declared, never recovered by lookup.** Inference makes an unrelated
+> edit change an API silently; a declaration makes it fail by name.
 
 ### 7. ⚠ Exact-value match — **REAL, resolved**
 **Real:** `{count:plural|none=no accounts|1=account|other=accounts}` — how it would be written
@@ -236,20 +338,58 @@ which is not an English category, so the branch can never fire: case 13a arrivin
 for the second time in two real examples, which is reasonable evidence that an inapplicable
 category key should fail the build.
 
-### 8. Escapes
+### 8. ⚠ Escapes — **RESOLVED, and it needs a harness rung that does not exist**
 **Stand-in:** `Use \{braces\} and a pipe \| here`
 **Real:** *(to add — do real messages hit these in anger?)*
-**Forces:** whether escapes survive lowering to data, and whether the data holds the *resolved*
-literal or the escaped source. `DESIGN.md` calls this "the archetypal demo-passes-prod-breaks
-bug", so the answer belongs in fixtures, not prose.
 
-### 9. A temporal hint
+**The data holds the resolved literal.** `Use \{braces\}` lowers to the characters
+`Use {braces}`. Anything else pushes DSL syntax into the interpreter, which is exactly what this
+design removed. Consequence, stated rather than discovered later: **message data does not
+round-trip to source** — nothing distinguishes `\{` from a brace that never needed escaping.
+Fine; the source is the source of truth and the data is a build artefact.
+
+**The finding is where the bug actually lives.** The data is emitted **as C# and TS source
+literals**, so every literal is re-escaped *for the target language* — quotes, backslashes, `${`
+inside a template string. That is precisely *a value quietly altered in transit*: invisible on
+the page, obvious to a test.
+
+**And a normal vector cannot reach it.** Vectors drive `data → output`; this bug lives **above**
+the interpreter, in the emitter. Catching it needs the input to be **DSL source**, run through
+generate → compile → execute in both languages.
+
+So the interpreter gains **zero** escape logic — the conformance surface does not grow — but the
+**harness** gains a rung. Under *we can only test input and output*, that is the honest reading:
+the test has to start where the input really is. `DESIGN.md` calls this the archetypal
+demo-passes-prod-breaks bug; the reason it earns that name is that the obvious place to test it
+is one layer below where it happens.
+
+### 9. ⚠ A temporal hint — **RESOLVED, and it fires a deferred trigger**
 **Stand-in:** `Renews on {renews:date-medium}`
 **Real:** *(to add)*
-**Forces:** binding to `f8n`'s temporal type, and **who formats** — the interpreter calling a
-formatter, or a pre-formatted string from the caller. If the caller formats, the typed
-signature is weaker than claimed; if the interpreter does, it needs CLDR date patterns, which
-is a second data tree.
+
+**The interpreter formats.** If the caller pre-formats, the parameter is a `string`, the typed
+north star dies for every temporal message, and the two languages can format differently with
+nothing to catch it.
+
+**But it must not delegate to the platform.** `Intl.DateTimeFormat` and .NET's `CultureInfo` are
+two different ICU copies at two different versions. They disagree, and the disagreements *move* —
+ICU 72 changed the space before AM/PM to a narrow no-break space and broke test suites across the
+JS ecosystem. Delegate, and the harness goes red on a **runtime upgrade** rather than on a code
+change: the worst possible signal, because it teaches you to distrust the test. *(High confidence
+on the general fact; the specific version behaviour is exactly the sort of thing to pin rather
+than trust — see the deferred toolchain-pinning item.)*
+
+So the interpreter applies **CLDR patterns from generated per-locale data** — which is what
+`DESIGN.md`'s "pattern-applier" already said, now with its reason. The same reason `f8n`
+hand-writes `Money` rather than leaning on `decimal.ToString("C")`.
+
+**This is not a third tree.** The per-locale tree becomes *everything CLDR says about this
+locale, plus this app's messages* — message data, the plural rule table (case 4), date and time
+patterns, number symbols — dynamically imported as one unit. That is what makes registration and
+dynamic import (cases 10 and 12) **one** mechanism rather than three.
+
+**It fires the CLDR-extractor trigger**, deferred with its trigger named as *l10n locale
+formatting*. This is that moment.
 
 ### 10. ⚠ Deep namespace and tree-shaking — **RESOLVED from production**
 **Real:** a shared catalogue across several teams — a shared subtree for UI chrome and
@@ -277,12 +417,31 @@ have turned out worse than it looks. It didn't.
 Different mechanisms for different trees. Arrived at here from plural categories, and in
 production from bundle size — same structure either way.
 
-### 11. A message a locale does not have
+### 11. A message a locale does not have — **RESOLVED**
 **Stand-in:** a key present in `en-GB`, absent in `cy`.
 **Real:** *(to add)*
-**Forces:** the shim exists (it comes from canonical), so what does the data tree hold? A
-fallback entry, a hole the runtime resolves, or a build failure? Interacts with case 4's
-fallback question.
+
+**Build failure is wrong** — case 12 established that gating *generation* stalls development
+behind translation. **A runtime fallback chain is wrong too:** the interpreter would need
+multi-tree lookup, vectors would have to drive *sets* of trees rather than one, and a missing
+message stays invisible until it renders.
+
+**Fallback resolves at lowering.** Welsh's tree carries the en-GB message for that key; every
+tree is complete; lookup is a single hit; the interpreter gains no fallback path at all. It is
+the same resolver constants already use (case 14) — **one mechanism, not two** — and it settles a
+structural question below: locale fallback is **generated, not runtime**.
+
+**The interaction this case predicted with case 4 is real, and costs one field.** A fallen-back
+message carries the *source* locale's categories, so case 4's *data matches this locale's
+category set* check would fire falsely — unless each entry is **tagged with its source locale**.
+
+That tag is not overhead invented to satisfy a check. It is independently required for `lang=` on
+the rendered fragment: without it a screen reader pronounces English prose with Welsh phonetics.
+**WCAG 3.1.2 *Language of Parts***, landing on the l10n × a11y seam `DESIGN.md` already names —
+and the same tag surfaces untranslated strings in dev mode.
+
+**Cost:** duplication, bounded by *translation debt* rather than corpus size, and trending to zero
+as translation completes. That is the right shape for a cost to have.
 
 ### 12. An unapproved translation — **RESOLVED from production**
 **Real:** a client-side **registration step on init** naming the namespaces an app will use,
@@ -396,11 +555,13 @@ while one missing from a single locale simply falls back.
 
 - **Two trees, one or two `c5n` collection kinds?** Does the shim tree and the per-locale data
   tree both fall out of `tree<T>`, or does one need something else?
-- **Where does locale fallback live** — `en-GB` → `en` → root? Generated (output multiplies) or
-  runtime (a lookup chain)?
-- **Is a constants file a `c5n` concern at all?** If constants resolve at lowering time
-  (case 14) then `c5n` never sees them and the answer is no — which is the preferred outcome,
-  and worth confirming rather than assuming.
+- ~~**Where does locale fallback live?**~~ **Answered (case 11): generated, at lowering.** Every
+  locale's tree is complete, the interpreter has no fallback path, and each entry carries its
+  source locale — a tag `lang=` needs independently. Output multiplies by the *translation debt*,
+  not by the corpus, and shrinks as translation completes.
+- ~~**Is a constants file a `c5n` concern at all?**~~ **Answered (case 14): no.** Constants
+  resolve entirely at lowering; `c5n` sees per-locale data objects and a locale-neutral type, and
+  never learns that constants exist. The preferred outcome, now confirmed rather than assumed.
 - **What does `c5n` need that it does not have?** The deliverable of this exercise. Entries so
   far, from the cases actually walked:
   1. **Two trees** — a locale-neutral tree of typed shims, and per-locale trees of message
@@ -417,7 +578,51 @@ while one missing from a single locale simply falls back.
   6. **Constants are a separate emission path, emitting values rather than functions** — a
      locale-neutral type over per-locale data objects, fallback resolved at lowering. This is
      `tree<T>`'s *value* leaf branch, where messages are its *symbol* branch. *(Case 14.)*
+  7. **Locale is an explicit parameter of the interpreter** — `render(data, args, locale)` is the
+     conformance boundary. Nothing below it reads ambient culture; how a shim *above* it obtains
+     the locale is free to differ per language. *(Case 2.)*
+  8. **Per-locale data carries more than messages** — the pre-reduced plural rule table and the
+     CLDR date/time patterns and number symbols are generated per locale alongside the message
+     data, and dynamically imported as one unit. *(Cases 4 and 9.)*
+  9. **Dispatch is declared, not inferred** — a sibling group is marked dispatchable, and
+     signature-incompatible branches then fail the build by name rather than silently removing an
+     API. *(Case 6.)*
+  10. **A sole-literal message lowers to a bare string**, and a leaf's *kind* (message versus
+     constant) is declared rather than inferred from arity. *(Case 1.)*
+  11. **Every entry carries its source locale**, so a fallen-back message is distinguishable from
+     a translated one — needed by case 4's build check, by `lang=`, and by dev-mode surfacing.
+     *(Case 11.)*
   Still expected but unspecified: the `tree<T>` declaration itself for the namespace tree.
+
+  **And one requirement that is not `c5n`'s.** The escape bug lives in the *emitter*, above the
+  boundary vectors reach, so the harness needs a rung whose input is **DSL source** — generate,
+  compile and execute in both languages — rather than message data. *(Case 8.)*
+
+## Where the walk landed
+
+**Every case is resolved, and no case forced new machinery mid-walk.** Three tightened the design
+by *removing* something (nesting, the digit-coupling rule, the unreachable `other` fallback), and
+the requirements list came out at eleven entries against a redesign of the whole codegen shape.
+
+**But the banner stays on, because this doc's own pass criterion is not met.** It asks for every
+case written out *in both languages and two locales*; that was done only where the artefacts were
+doing work. Lifting the banner on a criterion recorded two paragraphs later as unmet would be
+exactly the kind of thing this exercise exists to catch. What the walk earns is *"no case broke
+it"*, which is weaker than *"validated"* and worth keeping distinct.
+
+**Stated honestly, what the walk did not do:**
+
+- **No real corpus.** Cases 7, 10, 12, 13 and 14 came from real messages or a production system;
+  the rest ran on stand-ins. Stand-ins are invented, so they cannot contain the edge nobody
+  thought of — which is the entire reason a corpus is worth more than a walk.
+- **The artefacts were not written out longhand.** The method above asks for the typed signature,
+  the message data and the runtime call, in both languages and two locales, for every case. In
+  practice the cases were resolved by argument, with artefacts written only where they were doing
+  work. That is a weaker discipline than the doc set for itself, and it is where a missed
+  interaction would hide.
+- **Two cases resolved on an argument that could be wrong** rather than on evidence: case 1's
+  function-versus-property choice, and case 6's declared dispatch, which trades ergonomics for a
+  loud failure. Both are cheap to reverse.
 
 ## What a pass looks like
 
@@ -432,6 +637,29 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-29: **the remaining seven cases walked — 1, 2, 4, 6, 8, 9, 11 — and every case is now
+  resolved.** Walked under one lens, stated at the top: *the harness can only drive an input and
+  compare an output, so anything unreachable from an input or invisible in an output is
+  untestable — and untestable code inside the conformance surface is where two languages drift
+  apart in silence.* It decided three cases outright. **Case 2 placed the conformance boundary
+  for the whole design** — `render(data, args, locale)`, ambient locale forbidden below it and an
+  ergonomics choice above it — which is also the first limit the emitter-takes-the-pain rule has
+  been given by something other than the wire format, and it generalises the `LocalDate.ToString`
+  incident into an invariant. **Case 9 rejected platform date formatting**: `Intl` and
+  `CultureInfo` are two ICU copies at two versions, so delegating would turn a *runtime upgrade*
+  into a red harness — and it fires the deferred CLDR-extractor trigger. **Case 8 found the one
+  bug the vectors cannot reach**, since literal re-escaping happens in the emitter, above the
+  boundary they drive; the interpreter gains no escape logic but the harness needs a
+  source-level rung. **Case 4** split the plural rules the useful way — generated table,
+  hand-written evaluator, pre-reduced at extraction thanks to case 3 — and turned `DESIGN.md`'s
+  unreachable `other` fallback into a throw. **Case 11** resolves fallback at lowering, so every
+  tree is complete and the interpreter has no fallback path, with each entry tagged by source
+  locale — a tag `lang=` needs anyway (WCAG 3.1.2). **Case 6** changed shape under case 5 and
+  landed on *declared dispatch, never inferred*, which is case 14's lesson a second time and now
+  stated as a general rule: **structural facts are declared, never recovered by lookup**.
+  **Case 1** found that arity is not the discriminator between a message and a constant.
+  Requirements list is now eleven entries plus one harness rung; only the `tree<T>` declaration
+  remains unspecified. Verdict and its honest limits recorded under *Where the walk landed*.
 - 2026-08-29: **cases 10 and 12 resolved from production, and constants turn out to be bigger
   than case 14 treated them.** The two writers legitimately differ in **output layout** — TS
   per-locale and tree-shakable because bytes are the cost in a browser, C# a single package
