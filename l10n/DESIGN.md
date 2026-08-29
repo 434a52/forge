@@ -218,6 +218,45 @@ Three parts:
 
 **Correction from the pressure test (2026-08-27): the three parts above describe *one* tree where there are two.** The **typed-shim tree is locale-neutral** — one of it, signatures derived from the canonical (en-GB) hints — while the **message-data trees are per locale**, since Welsh carries six plural branches where English carries two. Different leaf types, different output layouts, different tree-shaking needs, emitted by `c5n` from related but distinct sources. It also implies a rule this doc left unstated: **a signature derives from the canonical message only, and every locale's data must conform to it** — checkable at build time, and what makes the pipeline's *protect structural tokens, translate prose only* load-bearing rather than merely tidy, since a translator who introduced an interpolation would otherwise produce data the shim cannot call. Full case list and what is still unwalked: `codegen-shape-test.md`.
 
+## Constants — values, not messages
+A namespace holds two kinds of leaf. **Messages** are functions returning a string. **Constants**
+are values — a support telephone number, an email, a company registration number — used
+*directly* by an app (`constants.supportPhone`) as well as interpolated into messages.
+
+They are **a separate codegen path and do not emit as functions.** A constant takes no
+arguments, so a function would be ceremony. This is `../c5n/DESIGN.md`'s `tree<T>` leaf rule
+doing exactly what it was written for — *"the leaf type decides emission: a generated symbol →
+nested scopes; a value → a nested data literal"* — with messages on the symbol branch and
+constants on the value branch.
+
+**Shape:** a **locale-neutral type** naming the keys, over **per-locale data objects** with the
+fallback chain already resolved at lowering. One resolver serves both leaf kinds, since
+constants fall back exactly as messages do. The type then buys an exhaustiveness check for
+nothing: a constant missing from *every* locale is a compile error, while one missing from a
+single locale simply falls back to the source.
+
+## Registration — one declaration, three jobs
+An app **registers on init the namespaces it will use**, and a runtime check permits only
+registered ones. That single declaration does three things:
+
+1. **Selects what to load** — the per-locale data trees are dynamically imported by namespace.
+2. **Scopes the deploy gate** — see below.
+3. **Constrains the runtime**, which is what makes the other two trustworthy rather than a
+   manifest that drifts.
+
+**Approval gates the deploy, not the generation.** Everything generates; development falls back
+to the source locale; the door is where an unapproved translation stops. Gating *generation*
+would break a local build on someone else's untranslated string, which stalls development
+behind the pipeline.
+
+**And registration is what makes that gate affordable.** Without it the gate must check every
+message in every shipped locale, so a half-translated namespace nobody uses blocks a release.
+
+**It is a runtime check because the catalogue is shared.** Where a generated catalogue serves a
+single app, the same idea can move to build time — emit only the registered namespaces, and
+using an unregistered one becomes a *compile* error, which is strictly stronger. A catalogue
+shared across teams cannot do that without ceasing to be shareable.
+
 ## Translation pipeline
 **Machine-generates → human-gates → CD-gate**, checked-in and PR-reviewed (same shape as `c5n`'s generated code — deterministic diffs are the review surface).
 
@@ -328,6 +367,7 @@ A formatter with a fixed locale, a single currency and bounded amounts can be en
 - 2026-07-03: cleared the five small opens (static digits · `=N` exact · parse=compact-money+decimal only · clobber=keep-human+`suggestion` · context=key-path+optional+screenshot); added **Translator UI (l10n × a11y)** section — human-gate surface with a11y-audit screenshots, placeholder chips, key↔control linkage seam.
 - 2026-07-03: **Runtime & integration** section — locale scope (never `CurrentCulture`, `AsyncLocal`/`IDisposable`), m2m propagation, JWT extraction, setup extensions, analysers, enum localization.
 - 2026-07-03: **Translation pipeline** section — en-GB canonical + per-locale mirror, checksum-gated re-translate with `approved:false`, placeholder repair+validate, plural expansion, orphan pruning, deploy gate, compliance flags (no PII to Anthropic; `requiresProfessional`).
+- 2026-08-29: **constants are a second leaf kind, and registration is a first-class mechanism.** Both from a production system rather than from a case. **Constants emit as values, not functions** — no arguments, so a function is ceremony — on a separate codegen path: a locale-neutral type over per-locale data objects with the fallback resolved at lowering, which buys an exhaustiveness check for nothing. That is `c5n`'s `tree<T>` leaf rule already anticipating two leaf kinds, with messages on the *symbol* branch and constants on the *value* branch. **Registration** — an app declaring the namespaces it will use, with a runtime check enforcing it — does three jobs with one declaration: selects what to dynamically load, scopes the deploy gate, and constrains the runtime so the first two can be trusted. And it settles the approval seam neither doc addressed: **approval gates the deploy, not the generation**, because gating generation would break a local build on an untranslated string. The check stays at runtime because the catalogue is shared across teams; a per-app catalogue could make it a compile error instead.
 - 2026-08-27: **nesting removed — `select` hoists into the shim, `plural` stays in the message.** The first pressure-test case to examine the codegen shape rather than the syntax, and it holds while getting simpler. The discriminator is that **`select` keys are locale-invariant and plural categories are not**, which maps straight onto the two trees: locale-neutral selection belongs in the locale-neutral shim. A `select` therefore becomes **sibling messages plus generated dispatch on an enum** — an invalid value is a compile error rather than a silent `other` — and **the parts model stays a flat list**, so the interpreter loops rather than recurses and the conformance surface does not grow. Translators get whole sentences instead of the eighteen fragments a gender × Welsh-plural nest produces, which is better practice regardless. Limits recorded: no `plural` inside `plural`; a wide `select` is data, not a message selector.
 - 2026-08-27: **fixtures split into two tiers — and plural rules need no locale curation at all.** CLDR publishes sample values inline with every rule (`@integer 4, 5, 7~20, 100, 1000…`), which is an input → expected dataset written by the authority for **every locale it defines**. So the plural evaluator is testable against ~200 locales with **no locale chosen, no expected value authored, and nobody who reads the language involved** — Latvian, Breton, Manx and Sorbian arrive by construction, which is precisely the class this design kept getting caught by. It is also the one place the **oracle caveat genuinely weakens**: elsewhere green proves the languages agree with *our* dataset, never that it is right, but here the dataset is CLDR's. **Latvian is deliberately kept out of the curated tier** — its risk is already covered, and adding it would buy an end-to-end render at the cost of a translation nobody present can verify; the curation budget goes to **hi** and **ar** instead. Guard recorded: assert that samples exercise each rule's distinguishing clauses (Latvian's `zero` must sample 10, 11–19 and 20, not only 0) rather than trusting that "representative" means "sufficient".
 - 2026-08-27: **withdrew the "up to Welsh complexity" plural bound, and gave the fixture locale set a written rationale.** The bound measured **category count**, which is the wrong axis: Welsh has six categories with straightforward semantics, while **Latvian has three** and is the one that breaks naive implementations (`zero` matches 0, 10, 11…19, 20). "No more exotic than Welsh" would have admitted precisely the locale that catches the bug. Complexity is how far a category's membership diverges from its name — and since the rules are data walked by one evaluator, there is nothing to bound anyway; the restriction that matters is on the *driver* being an integer. Recorded the existing set's reasoning — **cy** for plural breadth, **de** for layout, **fr** for legibility to the author (underrated: without it every fixture is a string nobody can read) — and the uncovered axes: **lv** for deviant category semantics, **hi** for the lakh/crore ladder with 2-2-3 grouping and Devanagari digits, **ar** for RTL, which the coverage list names and nothing supplies. Standing rule: a locale is in the set for a named reason, written down, because a set assembled by reach rather than by failure mode is the one that ships the Latvian bug.

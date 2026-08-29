@@ -251,13 +251,31 @@ formatter, or a pre-formatted string from the caller. If the caller formats, the
 signature is weaker than claimed; if the interpreter does, it needs CLDR date patterns, which
 is a second data tree.
 
-### 10. ⚠ Deep namespace and tree-shaking
-**Stand-in:** `account.open.button.label`, alongside a sibling subtree that is never used.
-**Real:** *(to add — real namespace depth and breadth)*
-**Forces:** `tree<T>` emitting nested scopes, and the open question `DESIGN.md` already flags:
-C# nested static classes give typed access but **may not trim**, where TS modules plus
-per-message files do. If the two languages need different output layouts, `c5n`'s per-target
-writers have to differ structurally rather than in spelling.
+### 10. ⚠ Deep namespace and tree-shaking — **RESOLVED from production**
+**Real:** a shared catalogue across several teams — a shared subtree for UI chrome and
+constants (support numbers, emails, company registration number), plus a namespace per team.
+
+**The two writers differ in output *layout*, not merely in syntax**, and that is correct rather
+than a problem:
+
+| target | shape | why |
+|---|---|---|
+| **TS** | per-locale exports, locales **dynamically imported**, tree-shakable throughout | bytes are the cost in a browser, and a bundler can only drop what it can prove unreferenced — which needs static imports, not one nested object |
+| **C#** | **a single package, everything in it** | the consumer is a server: the assembly loads once and a few hundred KB of strings is nothing |
+
+So c5n's writers own their **file partitioning**, not just their spelling — a heavier difference
+in kind than `partial class` versus `*.data.ts`, and the last plausible way this design could
+have turned out worse than it looks. It didn't.
+
+**And the two-trees split decomposes the problem cleanly**, which is why it is not one question:
+
+- **The shim tree is locale-neutral**, so **static imports and tree-shaking** select it. No
+  declaration required; the bundler does it.
+- **The data trees are per-locale**, so **dynamic import** loads them, selected by an explicit
+  **registration** (case 12).
+
+Different mechanisms for different trees. Arrived at here from plural categories, and in
+production from bundle size — same structure either way.
 
 ### 11. A message a locale does not have
 **Stand-in:** a key present in `en-GB`, absent in `cy`.
@@ -266,12 +284,31 @@ writers have to differ structurally rather than in spelling.
 fallback entry, a hole the runtime resolves, or a build failure? Interacts with case 4's
 fallback question.
 
-### 12. An unapproved translation
-**Stand-in:** a `cy` entry with `approved: false`.
-**Real:** *(to add)*
-**Forces:** `DESIGN.md`'s pipeline blocks unapproved entries at the CD gate. Does *generation*
-read only approved entries — and if so, is an unapproved locale a hole (case 11) or the
-previous approved value? This is where the pipeline and the codegen meet, and neither doc says.
+### 12. An unapproved translation — **RESOLVED from production**
+**Real:** a client-side **registration step on init** naming the namespaces an app will use,
+with runtime checks that only registered namespaces can be used.
+
+**Approval gates the *deploy*, not the *generation*.** That is the right way round: gate
+generation and an unapproved string breaks a local build, so development stalls behind
+translation. Instead everything generates, dev falls back to the source locale, and the door
+is where it stops.
+
+**And registration is what makes the gate affordable.** Without it the gate must examine every
+message in every shipped locale, so a half-translated namespace nobody uses blocks a release.
+The declaration narrows it to the surface actually in play — and the *"only registered
+namespaces may be used"* check is what makes the declaration trustworthy rather than a manifest
+that drifts.
+
+**One declaration, three jobs:** what to dynamically load, what the deploy gate must check, and
+what the runtime will permit.
+
+**It stays a runtime check because the catalogue is shared.** A build-time version — c5n emits
+only the registered namespaces, so using an unregistered one is a *compile* error — is strictly
+stronger and is available only where the generated package serves one app. A catalogue shared
+across teams cannot depend on one consumer's registration without ceasing to be shareable.
+
+*(Ownership hint, not yet a requirement: a shared subtree alongside per-team subtrees suggests
+approval gating is naturally **per-subtree** rather than global.)*
 
 ### 13. ⚠ A value hint and a selector that is never displayed — **REAL**
 **Real:** `You have {balance:currency} in {count:plural|one=account|other=accounts}`
@@ -338,6 +375,21 @@ either doc.
 - `terms & condition` carries an `&`, which `inline-formatting.md` already handles
   (auto-escaped by the sink).
 
+**And constants are bigger than this case treats them.** In production they are **first-class
+addressable values** — support telephone numbers, emails, a company registration number — used
+*directly* by an app (`constants.supportPhone`) and not only as a message parameter's default.
+
+They are **a separate emission path, and they do not emit as functions.** A constant takes no
+arguments, so a function would be ceremony; it emits as a **value**. That is `tree<T>`'s
+existing leaf rule doing its job — *"the leaf type decides emission: a generated symbol →
+nested scopes; a value → a nested data literal"* — with messages taking the symbol branch and
+constants the value branch. The design anticipated two leaf kinds; this is the second arriving.
+
+Shape: a **locale-neutral type** naming the keys, and **per-locale data objects** with the
+fallback already resolved at lowering (as this case established). The type then gives the
+exhaustiveness check for free — a constant missing from *every* locale is a compile error,
+while one missing from a single locale simply falls back.
+
 ---
 
 ## Structural questions, not per-message
@@ -359,8 +411,13 @@ either doc.
      whose keys are a closed build-time set. *(Case 5.)*
   4. **A parameter node carrying a default** — for a constant supplying an optional argument's
      value, resolved at lowering. *(Case 14.)*
-  Still expected but unspecified: `tree<T>` for the namespace tree, and fine-grained output
-  layout (case 10).
+  5. **Writers own their output layout, not just their syntax** — TS emits per-locale,
+     dynamically-importable, tree-shakable units; C# emits a single package. Confirmed against
+     a production system. *(Case 10.)*
+  6. **Constants are a separate emission path, emitting values rather than functions** — a
+     locale-neutral type over per-locale data objects, fallback resolved at lowering. This is
+     `tree<T>`'s *value* leaf branch, where messages are its *symbol* branch. *(Case 14.)*
+  Still expected but unspecified: the `tree<T>` declaration itself for the namespace tree.
 
 ## What a pass looks like
 
@@ -375,6 +432,20 @@ honestly, and the cost of finding out here is a document, where the cost of find
 is `c5n` grown to serve a shape that does not hold.
 
 ## Change log
+- 2026-08-29: **cases 10 and 12 resolved from production, and constants turn out to be bigger
+  than case 14 treated them.** The two writers legitimately differ in **output layout** — TS
+  per-locale and tree-shakable because bytes are the cost in a browser, C# a single package
+  because a server's assembly loads once — which was the last plausible way this design could
+  have turned out worse than it looks, and it didn't. The two-trees split decomposes it: static
+  imports select the locale-neutral shims, dynamic import selects the per-locale data.
+  **Approval gates the deploy, not the generation** — otherwise an unapproved string breaks a
+  local build — and a **registration declaration** does three jobs at once: what to load, what
+  the gate must check, and what the runtime permits. It stays a *runtime* check because the
+  catalogue is shared across teams; a per-app catalogue could make it a compile error instead.
+  And **constants are first-class addressable values on a separate emission path**, emitting as
+  values rather than functions — which is `tree<T>`'s existing *value* leaf branch, with
+  messages as its *symbol* branch. Requirements list is now six entries; only the `tree<T>`
+  declaration itself remains unspecified.
 - 2026-08-27: **case 5 resolved — nesting is removed, and the codegen shape gets simpler.** The
   first case to test the candidate's actual claim rather than its syntax, and the claim holds.
   The discriminator is that **`select` keys are locale-invariant while plural categories are
