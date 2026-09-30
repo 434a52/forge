@@ -2,7 +2,7 @@
 
 Cross-language codegen — raw material (canonical data, typed schemas) **forged** into typed, conformance-verified code for C#, TypeScript, and beyond.
 
-A monorepo for the codegen-coupled stack: the engine (`c5n`) and the libraries built on it. Private during development; each library publishes as an independent package, and public demo/docs sites build from here with the source staying private.
+A monorepo for the codegen-coupled stack: the engine (`c5n`) and the libraries built on it. Pre-release: no package is published yet. Each library publishes as an independent package, and demo/docs sites build from here.
 
 ## Projects
 

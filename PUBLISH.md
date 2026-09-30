@@ -2,7 +2,7 @@
 
 Pre-publish irreversibles for the forge stack. Package identity is a **published contract**: an npm scope, a NuGet ID prefix, or a Go module path **cannot be renamed** without breaking every consumer. So these are decided *on paper now* (cheap, fully reversible until first publish) and **locked at first publish** (irreversible after). Nothing here blocks local development — it gates the first `npm publish` / `dotnet nuget push` / `go install`.
 
-**Status: pre-publish.** Everything private; no package published yet. This is the gate before the first one.
+**Status: pre-publish.** The repo is public; no package is published yet. This is the gate before the first one.
 
 ## Namespacing
 
@@ -18,7 +18,7 @@ Pre-publish irreversibles for the forge stack. Package identity is a **published
 
 ## Go module path
 
-**Decision: `github.com/434a52/<repo>/<pkg>` — namespace under the owned `434a52` GitHub org, not a personal account and not a vanity domain.** c5n becomes `github.com/434a52/forge/c5n` (org swap only; keeps the monorepo layout). **Done:** `c5n/go.mod` updated to the org path 2026-07-09; network-resolves once `forge` is transferred to the org — `go.work` makes local dev path-agnostic meanwhile.
+**Decision: `github.com/434a52/<repo>/<pkg>` — namespace under the owned `434a52` GitHub org, not a personal account and not a vanity domain.** c5n becomes `github.com/434a52/forge/c5n` (org swap only; keeps the monorepo layout). **Done:** `c5n/go.mod` updated to the org path 2026-07-09, and `forge` now lives at `github.com/434a52/forge`, so the module path matches the repo. `go.work` keeps local dev path-agnostic.
 
 - **Why not a vanity domain (`434a52.io/c5n`)?** Vanity import paths exist to protect *importers* from a host/path change. **c5n is a distributed static binary** (esbuild-style — consumed by *invoking* it, not `import`-ing it), so its Go import graph is ≈ empty; there's almost nothing for a vanity path to protect. And owning the `434a52` org already gives brand cohesion across GitHub + npm + domain — vanity's other job. So the seam guards a cost that's near-zero for this module.
 - **Vanity is demoted to *only-if*:** if c5n ever exposes a **Go library API** for third-party emitters (people `import` c5n packages to extend it), importers exist → reconsider a vanity path then. Current design — binary + declarative `go:embed`'d template-bundle emitters — has **no Go-import extension surface**; confirm against `c5n/DESIGN.md` before finalising.
@@ -53,6 +53,7 @@ Own each namespace *before* first publish — squatting-insurance is cheap, and 
 
 ## Change log
 
+- 2026-09-30: **status corrected.** The repo is public; no package is published, so everything here is still pre-publish. `forge` lives in the `434a52` org, which completes the transfer the Go module path was waiting on.
 - 2026-08-24: **account / hosting material removed.** This file now covers the packaging contract only — namespacing, module path, registry reservations, licences, signing, versioning. Account administration, plan/tier choices and publish *timing* are not engineering decisions and no longer live here. The git history was rewritten the same day so the pre-split file is not recoverable from earlier commits.
 - 2026-07-10: **split-ordering + orthogonality recorded** (Go module path section). If c5n splits to its own repo, do it *before* first publish — the Go module *path* is the one irreversible bit, so publish-from-monorepo-then-split breaks it; splitting first also drops the required subdir tag prefix (`c5n/v0.1.0` → plain `v0.1.0`). **Split / publish / namespace-reservation are three orthogonal decisions:** the reservations are **org-scoped, already secured, and unaffected by a split** (it moves only the repo segment of the path, still inside the owned org).
 - 2026-07-09: **NuGet ID-prefix reservation requested — prefix `434a52`** (`434a52.*`; hex-stem cohesion over readable PascalCase — closes the prefix-form OPEN item). Pending review; sent before any package is published → approval likely via `434a52.io` domain verification, or NuGet asks for a first package.

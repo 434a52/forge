@@ -1,6 +1,6 @@
 # CLAUDE.md — forge
 
-Monorepo for the codegen-coupled stack (`c5n`, `f8n`, `l10n`, `a11y`, `palette`, `doppel`, `etch`, `scribe`, `press`, `lattice`, `portfolio`, …). **Private during development.** Design docs live in each project dir (`c5n/DESIGN.md`, `f8n/DESIGN.md`, `l10n/DESIGN.md`, …).
+Monorepo for the codegen-coupled stack (`c5n`, `f8n`, `l10n`, `a11y`, `palette`, `doppel`, `etch`, `scribe`, `press`, `lattice`, `portfolio`, …). **Public; pre-release — no package published yet.** Design docs live in each project dir (`c5n/DESIGN.md`, `f8n/DESIGN.md`, `l10n/DESIGN.md`, …).
 
 ## Instruction context
 
@@ -33,7 +33,7 @@ Credit Claude as co-contributor on all git activity:
 - **A contract package exists wherever types cross a language boundary** — not "always", which invites the obvious objection. Where nothing crosses there is no contract, only a library. And where one does exist it never has "one consumer": **it has two runtimes**, which cannot share a folder. That is a fact about the system rather than a claim about a hypothetical second client, and it is the reason the boundary is not speculative. Two more, equally present-tense: **conformance requires standalone consumability** (the dataset is meant to be third-party auditable, and a third party cannot build your app — `RunVector` references `F8n` and nothing else), and **a version has to belong to something** (a folder has none to send).
 - **Top-level directory = shared across products. Package within a product = shared across that product's halves.** `f8n`, `l10n`, `c5n` are peers because several products consume them. A product's own contract is a package inside it, consumed by its server and its client. **Extract on evidence, not in anticipation** — a domain library extracted before its domain is built is the standard route to the wrong abstraction, and every additional top-level directory makes the front door work harder to explain what is finished.
 
-## This repo is public-bound — keep it clean
+## This repo is public — keep it clean
 
 Everything here is written to be read by strangers. **Design docs and change logs describe the engineering, not the circumstances around it.**
 
@@ -45,7 +45,7 @@ Never write into this repo:
 - **First-person notes about the author** or their background.
 - **Strategy, roadmap or circumstance.** This repo records *what* and *why technically* — never *why now*. **Technical sequencing is not covered by this**: an implementation plan ordered by dependency belongs here, because a contributor needs it to pick up the work. What stays out is *why this project, why now* — priority between projects, what a piece of work is for, what it is timed against.
 
-**Change logs are the highest-risk surface.** They're written in the moment, when private-repo assumptions still hold, and never re-read. Apply the same rule to them as to the prose above them.
+**Change logs are the highest-risk surface.** They're written in the moment, when it is easy to write as if the repo were private, and never re-read. Apply the same rule to them as to the prose above them.
 
 If a rationale is genuinely about circumstance rather than engineering, the entry here should simply omit it — not gesture at it.
 
